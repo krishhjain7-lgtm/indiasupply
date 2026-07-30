@@ -1,0 +1,32 @@
+{
+  "summary": "First-pass MVP smoke test of norvian.ai backend + frontend. Backend: 11/11 critical endpoints work end-to-end via public URL. Frontend: home, catalogue, sample-order, join-exporter, submit-rfq and all 6 static pages render correctly with expected content.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "GET /api/catalogue returns 4 seeded jewellery products",
+    "GET /api/demo/sample-order returns YC demo workflow (kind=yc_demo_order, rfq_number=NRV-DEMO-A1B2C)",
+    "GET /api/auth/me returns 401 without session (expected)",
+    "POST /api/public/exporter-lead accepts application, returns lead_id (e.g. lead_622832f3bf)",
+    "POST /api/rfqs (unauth public) returns rfq_number NRV-202607-361BA matching NRV-YYYYMM-XXXXX; persisted in Mongo",
+    "POST /api/rfqs/ai-assist returned structured JSON with summary/provided/missing_fields/suggested_questions via Claude Sonnet 4.5 (EMERGENT_LLM_KEY has balance)",
+    "Auth-gated (seeded admin session cookie): /api/auth/me returns admin user; /api/admin/overview returns counts {buyers:0,exporters:0,rfqs:1,...}; /api/admin/companies returns list; /api/rfqs admin lists all RFQs",
+    "PATCH /api/rfqs/{id}/status updates to under_review -> {ok:true}",
+    "RBAC: seeded buyer sees only their own company_id RFQ (1); seeded exporter with no invitations sees [] as expected",
+    "POST /api/files/upload requires auth (401 without cookie); with valid session uploads and returns file_id + path",
+    "Frontend home page loads, CTA 'Submit an RFQ' navigates to /submit-rfq",
+    "Catalogue page renders 4 product images/cards",
+    "Sample-order page contains 'Demo' tag and NRV-DEMO reference number",
+    "Join-exporter page renders form with 11 inputs",
+    "Submit RFQ page shows 5-step wizard (What/References/Commercial/Details/Review) + AI-assist textarea",
+    "All 6 static pages return HTTP 200 with content: /how-it-works, /for-buyers, /for-exporters, /jaipur, /privacy, /terms"
+  ],
+  "failed": [],
+  "action_items": [
+    "Optional: Home page title is still generic 'Emergent | Fullstack App' — consider setting it to Norvian branding in public/index.html or a Helmet component.",
+    "Optional: /api/auth/me is polled repeatedly by the shell before login causing many 401s in browser console. Consider caching a 'no-session' state on the client to reduce noise (not a functional bug)."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "test_credentials_file_present": false,
+  "notes": "/app/memory/test_credentials.md not present. For auth-gated tests, admin session was seeded directly in MongoDB per /app/auth_testing.md. Public URL used throughout: https://india-supply.preview.emergentagent.com. End-to-end multi-step RFQ form submission via UI was NOT executed step-by-step — only page load + step tabs verified; API-level public RFQ submission was verified and returned a valid rfq_number."
+}

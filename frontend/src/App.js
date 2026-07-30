@@ -1,56 +1,64 @@
-import { useEffect } from "react";
+import React from "react";
+import "@/index.css";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { Toaster } from "sonner";
+import Home from "@/pages/Home";
+import SubmitRFQ from "@/pages/SubmitRFQ";
+import JoinExporter from "@/pages/JoinExporter";
+import Catalogue from "@/pages/Catalogue";
+import SampleOrder from "@/pages/SampleOrder";
+import AuthCallback from "@/pages/AuthCallback";
+import Onboarding from "@/pages/Onboarding";
+import BuyerDashboard from "@/pages/BuyerDashboard";
+import ExporterDashboard from "@/pages/ExporterDashboard";
+import AdminDashboard from "@/pages/AdminDashboard";
+import { HowItWorks, ForBuyers, ForExporters, Jaipur, Privacy, Terms, RFQThanks, ExporterThanks, Login } from "@/pages/Static";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+function DashboardRouter() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="n-label">Loading</div></div>;
+  if (!user) return <Navigate to="/" />;
+  if (!user.onboarded && user.role !== "admin") return <Navigate to="/onboarding" />;
+  if (user.role === "admin") return <AdminDashboard />;
+  if (user.role === "exporter") return <ExporterDashboard />;
+  return <BuyerDashboard />;
+}
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function AppRouter() {
+  const location = useLocation();
+  if (location.hash?.includes("session_id=")) return <AuthCallback />;
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/how-it-works" element={<HowItWorks />} />
+      <Route path="/for-buyers" element={<ForBuyers />} />
+      <Route path="/for-exporters" element={<ForExporters />} />
+      <Route path="/jaipur" element={<Jaipur />} />
+      <Route path="/catalogue" element={<Catalogue />} />
+      <Route path="/submit-rfq" element={<SubmitRFQ />} />
+      <Route path="/join-exporter" element={<JoinExporter />} />
+      <Route path="/sample-order" element={<SampleOrder />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/rfq-confirmation" element={<RFQThanks />} />
+      <Route path="/exporter-thanks" element={<ExporterThanks />} />
+      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/dashboard/*" element={<DashboardRouter />} />
+      <Route path="*" element={<Navigate to="/" />} />
+    </Routes>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Toaster position="top-right" richColors closeButton />
+        <AppRouter />
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}
