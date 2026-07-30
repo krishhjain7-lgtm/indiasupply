@@ -584,6 +584,37 @@ async def list_orders(user: dict = Depends(require_user)):
         q["exporter_company_id"] = user.get("company_id")
     return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
+@api.get("/orders/{order_id}")
+async def get_order(order_id: str, user: dict = Depends(require_user)):
+    doc = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404)
+    if user.get("role") == "buyer":
+        rfq = await db.rfqs.find_one({"rfq_id": doc.get("rfq_id")}, {"_id": 0, "buyer_company_id": 1})
+        if not rfq or rfq.get("buyer_company_id") != user.get("company_id"):
+            raise HTTPException(403)
+    elif user.get("role") == "exporter" and doc.get("exporter_company_id") != user.get("company_id"):
+        raise HTTPException(403)
+    return doc
+
+class MilestoneUpdate(BaseModel):
+    milestones: List[OrderMilestone]
+
+@api.patch("/admin/orders/{order_id}")
+async def update_order(order_id: str, body: dict, user: dict = Depends(require_admin)):
+    body.pop("_id", None); body.pop("order_id", None); body.pop("created_at", None)
+    await db.orders.update_one({"order_id": order_id}, {"$set": body})
+    await db.activity_logs.insert_one({"kind": "order_update", "order_id": order_id, "by": user["user_id"], "fields": list(body.keys()), "at": datetime.now(timezone.utc).isoformat()})
+    return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+
+@api.patch("/admin/orders/{order_id}/milestones")
+async def replace_milestones(order_id: str, body: MilestoneUpdate, user: dict = Depends(require_admin)):
+    ms = [m.model_dump() for m in body.milestones]
+    await db.orders.update_one({"order_id": order_id}, {"$set": {"milestones": ms}})
+    await db.activity_logs.insert_one({"kind": "milestones_updated", "order_id": order_id, "by": user["user_id"], "count": len(ms), "at": datetime.now(timezone.utc).isoformat()})
+    return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+
+
 # ---------- Files ----------
 @api.post("/files/upload")
 async def upload_file(file: UploadFile = File(...), user: dict = Depends(require_user)):
