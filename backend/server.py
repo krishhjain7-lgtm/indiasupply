@@ -426,6 +426,7 @@ async def create_catalogue_product(body: CatalogueProduct, user: dict = Depends(
     pid = f"prod_{uuid.uuid4().hex[:10]}"
     doc = {"product_id": pid, **body.model_dump(), "published": True, "created_at": datetime.now(timezone.utc).isoformat()}
     await db.catalogue_products.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 # ---------- Exporter Invitations & Quotations ----------
@@ -472,6 +473,7 @@ async def submit_quotation(body: QuotationCreate, user: dict = Depends(require_u
     qid = f"quo_{uuid.uuid4().hex[:10]}"
     doc = {"quotation_id": qid, "exporter_company_id": user.get("company_id"), **body.model_dump(), "status": "submitted", "created_at": datetime.now(timezone.utc).isoformat()}
     await db.exporter_quotations.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 @api.get("/quotations")
@@ -504,6 +506,7 @@ async def create_buyer_quotation(body: BuyerQuotationCreate, user: dict = Depend
     bqid = f"bqo_{uuid.uuid4().hex[:10]}"
     doc = {"buyer_quotation_id": bqid, **body.model_dump(), "status": "draft", "created_at": datetime.now(timezone.utc).isoformat()}
     await db.buyer_quotations.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 # ---------- Orders & Milestones ----------
@@ -527,6 +530,7 @@ async def create_order(body: OrderCreate, user: dict = Depends(require_admin)):
     oid = f"ord_{uuid.uuid4().hex[:10]}"
     doc = {"order_id": oid, **body.model_dump(), "status": "awaiting_deposit", "assurance_eligible": False, "created_at": datetime.now(timezone.utc).isoformat()}
     await db.orders.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 @api.get("/orders")
