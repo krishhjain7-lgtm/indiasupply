@@ -500,6 +500,9 @@ class BuyerQuotationCreate(BaseModel):
     expiry: Optional[str] = None
     specification: Optional[str] = None
     sample_price: Optional[float] = None
+    # Admin-only internal fields (never returned to buyer)
+    internal_costs: Optional[Dict[str, float]] = None
+    internal_notes: Optional[str] = None
 
 @api.post("/admin/buyer-quotations")
 async def create_buyer_quotation(body: BuyerQuotationCreate, user: dict = Depends(require_admin)):
@@ -508,6 +511,43 @@ async def create_buyer_quotation(body: BuyerQuotationCreate, user: dict = Depend
     await db.buyer_quotations.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+@api.patch("/admin/buyer-quotations/{bqid}")
+async def update_buyer_quotation(bqid: str, body: dict, user: dict = Depends(require_admin)):
+    body.pop("_id", None); body.pop("buyer_quotation_id", None)
+    await db.buyer_quotations.update_one({"buyer_quotation_id": bqid}, {"$set": body})
+    return await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
+
+@api.get("/buyer-quotations")
+async def list_buyer_quotations(rfq_id: Optional[str] = None, user: dict = Depends(require_user)):
+    q: Dict[str, Any] = {}
+    if rfq_id:
+        q["rfq_id"] = rfq_id
+    docs = await db.buyer_quotations.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    if user.get("role") == "buyer":
+        # Filter by RFQ ownership + status published/sent + strip internal fields
+        allowed_ids = {r["rfq_id"] async for r in db.rfqs.find({"buyer_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})}
+        docs = [d for d in docs if d.get("rfq_id") in allowed_ids and d.get("status") in ("published", "sent", "accepted")]
+        for d in docs:
+            d.pop("internal_costs", None); d.pop("internal_notes", None)
+    return docs
+
+# Admin-created exporter quotations (for comparison mock-ups when the exporter is not on the platform yet)
+class AdminQuotationCreate(QuotationCreate):
+    exporter_company_id: str
+    exporter_name: Optional[str] = None
+
+@api.post("/admin/quotations")
+async def admin_create_quotation(body: AdminQuotationCreate, user: dict = Depends(require_admin)):
+    qid = f"quo_{uuid.uuid4().hex[:10]}"
+    doc = {"quotation_id": qid, **body.model_dump(), "status": "submitted", "created_by_admin": True, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.exporter_quotations.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/admin/quotations")
+async def admin_list_quotations(rfq_id: str, user: dict = Depends(require_admin)):
+    return await db.exporter_quotations.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
 
 # ---------- Orders & Milestones ----------
 class OrderMilestone(BaseModel):

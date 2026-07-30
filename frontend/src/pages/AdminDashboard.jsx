@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { useAuth } from "../lib/auth";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { Stat, Table } from "./BuyerDashboard";
 import { toast } from "sonner";
@@ -25,12 +25,15 @@ export default function AdminDashboard() {
   const [rfqs, setRfqs] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const navigate = useNavigate();
   useEffect(() => {
     if (!user || user.role !== "admin") return;
     api.get("/admin/overview").then(r => setOv(r.data));
     api.get("/rfqs").then(r => setRfqs(r.data));
     api.get("/admin/companies").then(r => setCompanies(r.data));
     api.get("/admin/users").then(r => setUsers(r.data));
+    api.get("/orders").then(r => setOrders(r.data));
   }, [user]);
   if (loading) return null;
   if (!user) return <Navigate to="/" />;
@@ -47,7 +50,7 @@ export default function AdminDashboard() {
       <h1 className="text-[36px]" style={{ fontFamily: "Cormorant Garamond, serif" }}>Operations</h1>
 
       <div className="mt-6 flex gap-6 border-b" style={{ borderColor: "var(--border)" }}>
-        {["overview","rfqs","companies","users"].map(t => (
+        {["overview","rfqs","orders","companies","users"].map(t => (
           <button key={t} data-testid={`admin-tab-${t}`} onClick={()=>setTab(t)} className="pb-3 text-[13px]"
             style={{ borderBottom: tab===t?"2px solid var(--ink)":"2px solid transparent", color: tab===t?"var(--ink)":"var(--ink-2)", fontWeight: tab===t?600:400 }}>
             {t.toUpperCase()}
@@ -83,13 +86,39 @@ export default function AdminDashboard() {
                 <td className="px-5 py-3">{r.quantity}</td>
                 <td className="px-5 py-3">{r.destination_country}</td>
                 <td className="px-5 py-3 mono text-[11px] uppercase">{r.status}</td>
-                <td className="px-5 py-3">
+                <td className="px-5 py-3 flex items-center gap-3">
                   <select data-testid={`rfq-status-${r.rfq_id}`} className="n-input py-1 text-[12px]" defaultValue={r.status} onChange={e => setStatus(r.rfq_id, e.target.value)}>
                     {STATUSES.map(s => <option key={s}>{s}</option>)}
                   </select>
+                  <button data-testid={`rfq-open-${r.rfq_id}`} onClick={() => navigate(`/dashboard/rfq/${r.rfq_id}`)} className="mono text-[11px] underline">Open workspace →</button>
                 </td>
               </tr>
             ))}</tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === "orders" && (
+        <div className="mt-8 n-card overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead><tr className="mono text-[10px]" style={{ color: "var(--muted)" }}>
+              <th className="text-left px-5 py-3">ORDER</th>
+              <th className="text-left px-5 py-3">RFQ</th>
+              <th className="text-right px-5 py-3">Total</th>
+              <th className="text-left px-5 py-3">Status</th>
+              <th className="text-right px-5 py-3">Milestones</th>
+              <th className="px-5"/>
+            </tr></thead>
+            <tbody>{orders.map(o => (
+              <tr key={o.order_id} className="border-t" style={{ borderColor: "var(--border)" }}>
+                <td className="px-5 py-3 mono text-[12px]">{o.order_id}</td>
+                <td className="px-5 py-3 mono text-[12px]">{o.rfq_id}</td>
+                <td className="text-right px-5 py-3 mono">{o.currency} {Number(o.total_price).toFixed(2)}</td>
+                <td className="px-5 py-3 mono text-[11px] uppercase">{o.status}</td>
+                <td className="text-right px-5 py-3">{(o.milestones || []).length}</td>
+                <td className="px-5 py-3"><button data-testid={`ord-open-${o.order_id}`} onClick={() => navigate(`/dashboard/order/${o.order_id}`)} className="mono text-[11px] underline">Open →</button></td>
+              </tr>
+            ))}{!orders.length && <tr><td colSpan={6} className="px-5 py-6 text-[13px]" style={{color:"var(--muted)"}}>No orders yet — create one from an RFQ workspace.</td></tr>}</tbody>
           </table>
         </div>
       )}

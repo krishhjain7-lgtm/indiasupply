@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="12" time="2.190" timestamp="2026-07-30T17:37:45.872320+00:00" hostname="agent-env-59b1c934-77d9-4927-abe9-bb3056aef1f4"><testcase classname="tests.test_iteration2.TestBuyerQuotations" name="test_create_draft" time="0.202" /><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_create_order" time="0.378" /><testcase classname="tests.test_iteration2.TestBuyerQuotations" name="test_publish_buyer_quotation" time="0.054" /><testcase classname="tests.test_iteration2.TestBuyerQuotations" name="test_admin_lists_with_internal" time="0.049" /><testcase classname="tests.test_iteration2.TestBuyerQuotations" name="test_buyer_strips_internal_and_only_own" time="0.286" /><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_get_order_admin" time="0.094"><failure message="AssertionError: GET /api/orders/{id} missing? -&gt; 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_iteration2.py:215: in test_get_order_admin
+    assert r.status_code == 200, f"GET /api/orders/{{id}} missing? -&gt; {r.status_code} {r.text[:200]}"
+E   AssertionError: GET /api/orders/{id} missing? -&gt; 404 {"detail":"Not Found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_get_order_buyer_owner" time="0.160"><failure message="AssertionError: buyer owner should get 200: 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_iteration2.py:221: in test_get_order_buyer_owner
+    assert r.status_code == 200, f"buyer owner should get 200: {r.status_code} {r.text[:200]}"
+E   AssertionError: buyer owner should get 200: 404 {"detail":"Not Found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration2.TestAdminQuotations" name="test_admin_create_quotation" time="0.079" /><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_get_order_other_buyer_403" time="0.207"><failure message="AssertionError: unrelated buyer should get 403, got 404&#10;assert 404 == 403&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_iteration2.py:226: in test_get_order_other_buyer_403
+    assert r.status_code == 403, f"unrelated buyer should get 403, got {r.status_code}"
+E   AssertionError: unrelated buyer should get 403, got 404
+E   assert 404 == 403
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration2.TestAdminQuotations" name="test_admin_list_quotations" time="0.161" /><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_patch_milestones" time="0.067"><failure message="AssertionError: PATCH milestones missing? -&gt; 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_iteration2.py:236: in test_patch_milestones
+    assert r.status_code == 200, f"PATCH milestones missing? -&gt; {r.status_code} {r.text[:200]}"
+E   AssertionError: PATCH milestones missing? -&gt; 404 {"detail":"Not Found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration2.TestOrdersAndMilestones" name="test_patch_order_status" time="0.055"><failure message="AssertionError: PATCH order missing? -&gt; 404 {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_iteration2.py:244: in test_patch_order_status
+    assert r.status_code == 200, f"PATCH order missing? -&gt; {r.status_code} {r.text[:200]}"
+E   AssertionError: PATCH order missing? -&gt; 404 {"detail":"Not Found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2 backend testing: Quotation Builder endpoints 100% pass (7/7). Milestone Tracker endpoints 0% pass (5/5 fail) — three required backend endpoints are MISSING entirely from server.py: GET /api/orders/{order_id}, PATCH /api/admin/orders/{order_id}/milestones, and PATCH /api/admin/orders/{order_id}. This blocks the entire OrderDetail.jsx page and the Create-order→Order workspace flow. Frontend E2E for order workspace was not executed because backend is broken; regression pages still load.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/orders/{order_id}", "issue": "Endpoint does not exist in server.py. Returns 404 Not Found. Required by test spec (admin=200, buyer-owner=200, other-buyer=403) and by frontend OrderDetail.jsx (api.get(`/orders/${id}`)). Must fetch order by order_id, enforce RBAC: admin ok, buyer ok iff order.rfq_id belongs to their company (join via rfqs.buyer_company_id), else 403.", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /api/admin/orders/{order_id}/milestones", "issue": "Endpoint missing (404). Frontend OrderDetail.setMilestone calls it and expects the updated order back. Should replace order.milestones with body['milestones'] and return the full updated order doc (sans _id).", "priority": "CRITICAL"},
+      {"endpoint": "PATCH /api/admin/orders/{order_id}", "issue": "Endpoint missing (404). Frontend OrderDetail.setOrderStatus calls it. Should update arbitrary allowed fields (status etc.), insert an activity_logs entry (kind='order_update', order_id, by, changes, at), and return the updated order.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/quotations (buyer role)", "issue": "Ignores role check that rfq_id may be None — when buyer calls without rfq_id it returns ALL buyer_quotations across all buyers (no ownership filter in that branch, line ~488). Consider always filtering by rfqs owned by buyer_company_id."},
+      {"endpoint": "POST /api/admin/quotations", "issue": "AdminQuotationCreate inherits QuotationCreate which requires `quantity` field. Frontend Compare form's `q-add` sends quantity possibly empty; passes because pydantic accepts empty string. OK but consider Optional to avoid future validation surprises."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin creates order → redirects to /dashboard/order/{oid}", "issue": "OrderDetail page will render 'Loading…' forever because GET /api/orders/{id} returns 404. Depends on backend fix.", "affected_selectors": ["/dashboard/order/{id}", "od-status", "od-m-status-*", "od-m-paid-*"]},
+      {"flow": "Buyer views order", "issue": "Same as above — buyer dashboard order click-through blocked by missing GET /api/orders/{id}."}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration2.py", "/app/test_reports/pytest/iter2.xml"],
+  "action_items": [
+    "Add GET /api/orders/{order_id} with RBAC (admin=200; buyer 200 iff rfq belongs to their company_id else 403; exporter 200 iff exporter_company_id matches else 403).",
+    "Add PATCH /api/admin/orders/{order_id}/milestones (admin only) — replace order.milestones and return updated order.",
+    "Add PATCH /api/admin/orders/{order_id} (admin only) — $set allowed fields (status, exporter_company_id, total_price, currency, notes), insert activity_logs entry, return updated order.",
+    "Consider hardening GET /api/quotations for buyer role when rfq_id is None (currently exposes cross-buyer buyer_quotations)."
+  ],
+  "critical_code_review_comments": [
+    "server.py — the entire order lifecycle backend has POST + GET-list only; 3 endpoints referenced by frontend are absent. This is a spec/implementation mismatch, not just a bug.",
+    "list_buyer_quotations (line ~522): correctly strips internal_costs/internal_notes for buyer role and correctly enforces buyer_company_id ownership + status in ('published','sent','accepted'). Verified via tests.",
+    "admin_create_quotation persists created_by_admin=True and exporter_name — good.",
+    "OrderDetail.jsx uses cookie-based /orders/{id} via `api` axios client. Once backend is added, buyer-side view will work; ensure exporter role is not confused (RBAC path).",
+    "PATCH /admin/buyer-quotations/{bqid} accepts a raw dict — consider a Pydantic model + whitelist to prevent overwriting created_at/buyer_quotation_id (currently manually pops these — acceptable)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2.py"],
+  "success_rate": {"backend_quotation_builder": "100% (7/7)", "backend_milestone_tracker": "0% (0/5)", "backend_overall_iter2": "58% (7/12)", "frontend": "Not tested for order workspace (blocked by backend)"},
+  "test_credentials": "Seeded admin/buyer sessions programmatically via MongoDB (see /app/auth_testing.md). Owner admin krishhjain7@gmail.com auto-seeded on backend startup.",
+  "seed_data_creation": "test_iteration2.py fixtures seed a buyer+admin user, sessions, and one RFQ owned by the buyer company. Cleans up on teardown.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Rerun /app/backend/tests/test_iteration2.py once the 3 missing order endpoints are implemented. Then execute frontend Playwright E2E for: (a) /dashboard/rfq/{id} admin workspace tabs (compare add quote, cost builder totals, buyer quotation preset+save+publish, order create with redirect), (b) /dashboard/order/{id} admin milestone toggle + status change + progress bar update. Public URL: https://india-supply.preview.emergentagent.com. Auth via injected session_token cookie.",
+  "rca of the issue": "server.py currently defines only @api.post('/admin/orders') (line 568) and @api.get('/orders') (line 576). The frontend OrderDetail.jsx and AdminRfqWorkspace.jsx were built against a spec that requires three additional order endpoints. Root cause: backend implementation is incomplete for the milestone-tracker feature added in iteration 2. Mitigation: add the three endpoints per action_items above, then rerun pytest — all 12 tests should pass."
+}

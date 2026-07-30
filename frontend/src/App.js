@@ -14,6 +14,8 @@ import Onboarding from "@/pages/Onboarding";
 import BuyerDashboard from "@/pages/BuyerDashboard";
 import ExporterDashboard from "@/pages/ExporterDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
+import AdminRfqWorkspace from "@/pages/AdminRfqWorkspace";
+import OrderDetail from "@/pages/OrderDetail";
 import { HowItWorks, ForBuyers, ForExporters, Jaipur, Privacy, Terms, RFQThanks, ExporterThanks, Login } from "@/pages/Static";
 
 function DashboardRouter() {
@@ -21,9 +23,14 @@ function DashboardRouter() {
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="n-label">Loading</div></div>;
   if (!user) return <Navigate to="/" />;
   if (!user.onboarded && user.role !== "admin") return <Navigate to="/onboarding" />;
-  if (user.role === "admin") return <AdminDashboard />;
-  if (user.role === "exporter") return <ExporterDashboard />;
-  return <BuyerDashboard />;
+  return (
+    <Routes>
+      <Route index element={user.role === "admin" ? <AdminDashboard/> : user.role === "exporter" ? <ExporterDashboard/> : <BuyerDashboard/>}/>
+      <Route path="rfq/:id" element={<AdminRfqWorkspace/>}/>
+      <Route path="order/:id" element={<OrderDetail/>}/>
+      <Route path="*" element={<Navigate to="/dashboard" />}/>
+    </Routes>
+  );
 }
 
 function AppRouter() {
