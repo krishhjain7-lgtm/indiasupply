@@ -44,8 +44,8 @@ export function ForExporters() {
 }
 export function Jaipur() {
   return <StaticPage kicker="Jaipur jewellery" title="The first export lane." body={<>
-    <p>Sterling-silver, vermeil, and coloured-gemstone jewellery from Jaipur. The founder has direct access
-    to the manufacturing cluster and personally oversees the first orders. This lets Norvian prove the workflow
+    <p>Sterling-silver, vermeil, and coloured-gemstone jewellery from Jaipur. We have direct access
+    to the manufacturing cluster and personally oversee the first orders. This lets Norvian prove the workflow
     end to end before extending to other Indian clusters.</p>
     <p>Subsequent lanes: textiles, handicrafts, stone, and specialty foods.</p>
   </>} cta={<Link to="/catalogue" className="n-btn-secondary">Browse catalogue</Link>}/>;
