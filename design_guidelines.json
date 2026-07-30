@@ -1,0 +1,141 @@
+{
+  "theme_concept": "Premium Global Trade Infrastructure. Think Stripe or Linear meets Financial Times / premium jewellery brand aesthetic. Highly editorial, operational, and credible enough for a YC partner or international luxury brand.",
+  "typography": {
+    "headings": {
+      "family": "'Cormorant Garamond', serif",
+      "weights": [400, 500, 600, 700],
+      "usage": "H1, H2, H3, large marketing copy, dashboard main titles. Use tracking-tight (-0.02em to -0.04em) for large sizes."
+    },
+    "body": {
+      "family": "'Manrope', sans-serif",
+      "weights": [400, 500, 600],
+      "usage": "Paragraphs, table data, forms, standard UI elements. Clean, modern, highly legible."
+    },
+    "labels_mono": {
+      "family": "'IBM Plex Mono', monospace",
+      "weights": [400, 500],
+      "usage": "SKUs, order IDs, timestamps, small operational labels in uppercase. Adds technical/operational credibility."
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#F9F8F5",
+      "surface": "#FFFFFF",
+      "subtle": "#F2EFE9"
+    },
+    "text": {
+      "primary": "#1C1B1A",
+      "secondary": "#524F4A",
+      "muted": "#8A867D"
+    },
+    "accent": {
+      "bronze": "#A38057",
+      "bronze_hover": "#8C6B45",
+      "bronze_light": "#F2EBE1"
+    },
+    "semantics": {
+      "success": "#3C6B4F",
+      "success_bg": "#EAF0EC",
+      "warning": "#B88E2B",
+      "error": "#9E3C3C",
+      "info": "#2E5A7A"
+    },
+    "borders": {
+      "default": "#E6E2D8",
+      "strong": "#CCC5B8"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Flat solid surfaces only. No glassmorphism. Avoid excessive rounded corners (max rounded-md or rounded-sm).",
+    "borders": "1px subtle borders (border-default) to define sections. Use grid-borders for data-heavy sections.",
+    "shadows": "Very subtle, crisp shadows for dropdowns and dialogs. Example: shadow-[0_4px_24px_rgba(28,27,26,0.08)]. Marketing cards should mostly rely on borders, not shadows.",
+    "textures": "Subtle noise/grain overlay ONLY on dark hero sections or specific marketing visual blocks. Otherwise, keep it clean."
+  },
+  "components_customization": {
+    "buttons": "Square or slightly rounded (rounded-sm) solid rectangles. Primary: Dark charcoal bg (#1C1B1A) with off-white text, OR Bronze (#A38057) with white text. Hover states should simply darken the background.",
+    "cards": "Minimalist rectangular containers with 1px border (#E6E2D8) and solid white background. No default shadows.",
+    "inputs": "Square or rounded-sm with 1px borders. Generous padding. Focus state should use a crisp charcoal ring (ring-gray-900).",
+    "tables": "Editorial and elegant. Lots of whitespace. Border-b only for rows (no vertical borders). Text size text-sm with Manrope. Align numbers to the right. Use uppercase small mono font for column headers.",
+    "tabs": "Underline style preferred over pill style. Use bronze or dark charcoal for the active indicator."
+  },
+  "grids_and_layouts": {
+    "spacing": "Generous spacing. Use p-8 to p-12 for container padding. Spacing system follows Tailwind scale.",
+    "marketing": "Asymmetrical editorial grids, overlapping images, large typography leading the eye. High white-space ratio.",
+    "dashboard": "Dense but clear. Strict grid hierarchy. F-pattern for forms. Sidebar should be clean, using subtle off-white background (#F2EFE9)."
+  },
+  "motion": {
+    "style": "Restrained, elegant, crisp.",
+    "interactions": "Subtle background color changes on hover, swift fade-ins. Avoid bouncy or springy animations. Use standard ease-in-out.",
+    "page_transitions": "Simple 0.2s opacity fades."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text, especially bronze accents on light backgrounds, meets WCAG AA 4.5:1 ratio.",
+    "focus": "Clear, visible focus rings on all inputs/buttons.",
+    "data_testids": "All interactive elements MUST have data-testid attributes (e.g. data-testid=\"submit-rfq-button\")."
+  },
+  "media": {
+    "guidelines": "High-quality, authentic jewellery, workshop, and shipping imagery. No cartoon illustrations. Full bleed in hero, or tightly framed in bento grids.",
+    "overlay": "If text is over an image, use a subtle linear-gradient overlay from black/40 to transparent."
+  },
+  "image_urls": {
+    "hero": [
+      {
+        "url": "https://images.unsplash.com/photo-1583937443566-6fe1a1c6e400?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxzaWx2ZXIlMjBqZXdlbHJ5JTIwcmluZ3N8ZW58MHx8fHwxNzgyNTI4MDA3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Silver diamond studded ring, premium feel."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1599643477877-530eb83abc8e",
+        "description": "Silver and blue gemstone pendant necklace."
+      }
+    ],
+    "process_and_workshop": [
+      {
+        "url": "https://images.unsplash.com/photo-1609619742069-f5e18afeef17?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDV8MHwxfHNlYXJjaHwyfHxqZXdlbHJ5JTIwd29ya3Nob3AlMjBhcnRpc2FufGVufDB8fHx8MTc4MzExNTQxNnww&ixlib=rb-4.1.0&q=85",
+        "description": "Artisan in workshop."
+      }
+    ],
+    "logistics": [
+      {
+        "url": "https://images.pexels.com/photos/27402391/pexels-photo-27402391.jpeg",
+        "description": "Aerial view of container ship for logistics/export section."
+      }
+    ],
+    "products": [
+      {
+        "url": "https://images.unsplash.com/photo-1656010280162-772358d9f4ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwzfHxzaWx2ZXIlMjBqZXdlbHJ5JTIwcmluZ3N8ZW58MHx8fHwxNzgyNTI4MDA3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Close up silver ring."
+      }
+    ]
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Light or Thin weights for a premium, delicate look."
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Old Money Tech / Editorial Future theme.",
+    "Use pure HTML/Tailwind for marketing pages. Avoid standard Shadcn cards there to maintain a bespoke editorial feel.",
+    "For the dashboards, heavily customize Shadcn to remove generic Vercel looks. Use flat borders, right-aligned numbers in tables, and muted colors.",
+    "AVOID: purple/blue AI gradients, excessive border radius, glassmorphism, crypto-vibes.",
+    "Use Cormorant Garamond for Headings and Manrope for body text. Add IBM Plex Mono for small data points/SKUs.",
+    "Do NOT use transparent backgrounds for dropdowns or modals. Always ensure clear surfaces under floating elements.",
+    "Provide clear YC demo mode indicators in the Admin dashboard using clean labels.",
+    "Use data-testid on all interactive elements.",
+    "For the Buyer/Exporter dashboards, ensure the sidebar navigation is clean, utilizing the subtle off-white background."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy (using borders and subtle solid dropshadows, not blurs).",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like crisp rectangles with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Main agent relies on provided image URLs. NEVER use placeholder text for images.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use sonner for toasts. Sonner component are located in /app/frontend/src/components/ui/sonner.js",
+    "You have .js files not .tsx file, so share the guideline for .js files not for .tsx files."
+  ]
+}
