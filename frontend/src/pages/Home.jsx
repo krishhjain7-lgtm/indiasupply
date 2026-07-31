@@ -4,8 +4,8 @@ import { MarketingLayout } from "../components/MarketingLayout";
 import { ArrowUpRight } from "lucide-react";
 
 const IMG_HERO_A = "https://images.unsplash.com/photo-1583937443566-6fe1a1c6e400?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
-const IMG_HERO_B = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
-const IMG_HERO_C = "https://images.unsplash.com/photo-1610701596007-11502861dcfa?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
+const IMG_HERO_B = "https://images.unsplash.com/photo-1600166898405-da9535204843?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
+const IMG_HERO_C = "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
 
 const IMG_CAT_JEWEL = "https://images.unsplash.com/photo-1609619742069-f5e18afeef17?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
 const IMG_CAT_TEXTILE = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
@@ -99,8 +99,8 @@ export default function Home() {
           <div className="md:col-span-5 md:pl-4 mt-6 md:mt-0">
             <div className="grid grid-cols-6 grid-rows-6 gap-3 h-[420px] md:h-[500px]">
               <img src={IMG_HERO_A} alt="silversmithing" className="col-span-6 row-span-4 w-full h-full object-cover"/>
-              <img src={IMG_HERO_B} alt="textiles" className="col-span-3 row-span-2 w-full h-full object-cover"/>
-              <img src={IMG_HERO_C} alt="handicraft" className="col-span-3 row-span-2 w-full h-full object-cover"/>
+              <img src={IMG_HERO_B} alt="handwoven rug" className="col-span-3 row-span-2 w-full h-full object-cover"/>
+              <img src={IMG_HERO_C} alt="speciality foods" className="col-span-3 row-span-2 w-full h-full object-cover"/>
             </div>
           </div>
         </div>
