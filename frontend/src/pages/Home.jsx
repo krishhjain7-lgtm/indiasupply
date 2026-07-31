@@ -34,9 +34,9 @@ const STEPS = [
 
 const CATEGORIES = [
   { id: "jewellery", title: "Jewellery and gemstones", desc: "Sterling silver, vermeil, coloured gemstones, private-label collections, and custom designs.", status: "LIVE NOW", statusKind: "live", cta: "Source jewellery", img: IMG_CAT_JEWEL, href: "/submit-rfq?cat=Jewellery" },
-  { id: "textiles", title: "Textiles and home", desc: "Home textiles, fabrics, rugs, table linen, soft furnishings, and private-label products.", status: "OPENING NEXT", statusKind: "next", cta: "Submit a textile requirement", img: IMG_CAT_TEXTILE, href: "/submit-rfq?cat=Textiles" },
-  { id: "handicrafts", title: "Handicrafts and décor", desc: "Metalware, woodwork, marble, pottery, tabletop products, and decorative accessories.", status: "OPENING NEXT", statusKind: "next", cta: "Submit a product requirement", img: IMG_CAT_CRAFT, href: "/submit-rfq?cat=Handicrafts" },
-  { id: "foods", title: "Speciality foods", desc: "Selected spices, tea, coffee, dry ingredients, and shelf-stable packaged products from export-ready producers.", status: "SELECTED SUPPLIERS ONLY", statusKind: "select", cta: "Discuss a food requirement", img: IMG_CAT_FOOD, href: "/submit-rfq?cat=Specialty%20foods" },
+  { id: "textiles", title: "Textiles and home", desc: "Home textiles, fabrics, rugs, table linen, soft furnishings, and private-label products.", status: "LIVE NOW", statusKind: "live", cta: "Submit a textile requirement", img: IMG_CAT_TEXTILE, href: "/submit-rfq?cat=Textiles" },
+  { id: "handicrafts", title: "Handicrafts and décor", desc: "Metalware, woodwork, marble, pottery, tabletop products, and decorative accessories.", status: "LIVE NOW", statusKind: "live", cta: "Submit a product requirement", img: IMG_CAT_CRAFT, href: "/submit-rfq?cat=Handicrafts" },
+  { id: "foods", title: "Speciality foods", desc: "Selected spices, tea, coffee, dry ingredients, and shelf-stable packaged products from export-ready producers.", status: "LIVE NOW", statusKind: "live", cta: "Discuss a food requirement", img: IMG_CAT_FOOD, href: "/submit-rfq?cat=Specialty%20foods" },
 ];
 
 const ASSURANCE = [
@@ -77,7 +77,7 @@ export default function Home() {
           <div className="md:col-span-7">
             <div className="n-label mb-6">Managed sourcing from India</div>
             <h1 className="text-[40px] sm:text-[52px] md:text-[72px] leading-[1] tracking-tight" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              Reliability of a local suppliers.{" "}
+              Reliability of a local supplier.{" "}
               <em style={{ color: "var(--bronze)", fontStyle: "italic" }}>Economics of Indian manufacturing.</em>
             </h1>
             <p className="mt-7 md:mt-8 text-[17px] md:text-[16px] max-w-[620px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
