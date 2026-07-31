@@ -5,7 +5,7 @@ import { ArrowUpRight } from "lucide-react";
 
 const IMG_HERO_A = "https://images.unsplash.com/photo-1583937443566-6fe1a1c6e400?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
 const IMG_HERO_B = "https://images.unsplash.com/photo-1600166898405-da9535204843?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
-const IMG_HERO_C = "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200&sat=-10";
+const IMG_HERO_C = "https://images.unsplash.com/photo-1509358271058-acd22cc93898?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
 
 const IMG_CAT_JEWEL = "https://images.unsplash.com/photo-1609619742069-f5e18afeef17?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
 const IMG_CAT_TEXTILE = "https://images.unsplash.com/photo-1600166898405-da9535204843?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
