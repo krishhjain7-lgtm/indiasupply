@@ -312,46 +312,10 @@ export default function Home() {
               operational control while we build the systems, supplier data, inspection standards, and
               transaction history required to expand responsibly.
             </p>
-            <p className="mt-4 text-[15px] max-w-[600px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
-              The underlying workflow&mdash;requirement structuring, supplier matching, quotation comparison,
-              sample approval, production monitoring, inspection, documentation, and freight coordination&mdash;
-              is designed to extend across other Indian manufacturing clusters.
-            </p>
             <div className="mt-8 grid grid-cols-2 gap-6 max-w-md">
               <Metric label="Suppliers under review" value="Coming soon"/>
               <Metric label="Active export lane" value="Jaipur jewellery"/>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* EXPANSION MAP */}
-      <section className="py-16 md:py-24 border-b" style={{ borderColor: "var(--border)", background: "var(--subtle)" }}>
-        <div className="n-container">
-          <div className="grid md:grid-cols-12 gap-8">
-            <div className="md:col-span-5">
-              <div className="n-label mb-4">Cluster-by-cluster expansion</div>
-              <h2 className="text-[30px] md:text-[44px] leading-[1.05]" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-                Built around manufacturing depth, not an endless product catalogue.
-              </h2>
-            </div>
-            <div className="md:col-span-7 md:pt-4">
-              <p className="text-[15px] max-w-[620px]" style={{ color: "var(--ink-2)" }}>
-                Norvian expands only where we can establish qualified suppliers, category-specific specifications,
-                inspection standards, and reliable export execution.
-              </p>
-            </div>
-          </div>
-          <div className="mt-10 md:mt-14 grid md:grid-cols-2 gap-3 md:gap-4">
-            {CLUSTERS.map(c => (
-              <div key={c.name} className="n-card p-5 md:p-6 flex items-start justify-between gap-6">
-                <div>
-                  <div style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 26 }} className="leading-tight">{c.name}</div>
-                  <div className="mt-1 text-[13.5px]" style={{ color: "var(--ink-2)" }}>{c.cats}</div>
-                </div>
-                <StatusPill kind={c.live ? "live" : "next"} className="shrink-0">{c.status.toUpperCase()}</StatusPill>
-              </div>
-            ))}
           </div>
         </div>
       </section>
