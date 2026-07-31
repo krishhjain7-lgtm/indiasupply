@@ -218,7 +218,6 @@ export default function Home() {
               See how a private-label jewellery order moves through Norvian.
             </h2>
             <p className="mt-5 text-[15px] max-w-[560px]" style={{ color: "var(--ink-2)" }}>
-              The workflow below demonstrates our first active export lane in Jaipur.
               The same operating structure is adapted to the specifications, inspections,
               and documentation required by each category.
             </p>
