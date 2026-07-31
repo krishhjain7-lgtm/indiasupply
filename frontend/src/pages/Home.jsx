@@ -303,7 +303,7 @@ export default function Home() {
           </h2>
           <p className="mt-6 text-[16px] max-w-[680px]" style={{ color: "var(--ink-2)" }}>
             Send a product image, specification sheet, target quantity, destination, or even an incomplete brief.
-            We will determine whether the requirement fits an active or upcoming Norvian export lane.
+            We will come back with suppliers, samples, and a landed cost.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link to="/submit-rfq" data-testid="final-cta-rfq" className="n-btn-primary">Submit an RFQ <ArrowUpRight size={16}/></Link>
