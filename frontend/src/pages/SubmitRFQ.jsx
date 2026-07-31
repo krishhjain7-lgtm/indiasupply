@@ -5,9 +5,8 @@ import { toast } from "sonner";
 import { Sparkles, Upload as UploadIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-const CATEGORIES = ["Jewellery", "Textiles", "Handicrafts", "Home decor", "Leather", "Specialty foods", "Other"];
+const CATEGORIES = ["Jewellery", "Textiles", "Handicrafts", "Specialty foods", "Other"];
 const KINDS = ["Catalogue product", "Private label", "Custom"];
-const PAYMENT = ["Open to discussion", "100% upfront", "50/50", "30/70", "Credit terms requested"];
 const CONCERNS = ["Supplier reliability", "Product quality", "Pricing", "Delivery timeline", "Payment protection", "Compliance", "Other"];
 
 const JEWELLERY_FIELDS = [
@@ -25,6 +24,50 @@ const JEWELLERY_FIELDS = [
   { k: "testing", label: "Testing or certification requirements" },
 ];
 
+const TEXTILE_FIELDS = [
+  { k: "product_type", label: "Product type (rug / bedding / linen / fabric)" },
+  { k: "fabric", label: "Fabric or blend (cotton, linen, silk, wool...)" },
+  { k: "gsm", label: "GSM / weight per m²" },
+  { k: "weave", label: "Weave or knit type" },
+  { k: "dye", label: "Dye method (reactive, natural, block-print, azo-free)" },
+  { k: "colours", label: "Colours (attach references)" },
+  { k: "dimensions", label: "Finished dimensions / sizing" },
+  { k: "trim", label: "Trims, borders, or embroidery" },
+  { k: "labels", label: "Care labels & branding" },
+  { k: "packaging", label: "Packaging requirements" },
+  { k: "testing", label: "Testing / certifications (OEKO-TEX, GOTS, etc.)" },
+];
+
+const HANDICRAFT_FIELDS = [
+  { k: "product_type", label: "Product type (vase / bowl / decor / furniture)" },
+  { k: "material", label: "Primary material (brass, wood, marble, ceramic...)" },
+  { k: "finish", label: "Finish (polished, antique, matte, lacquered)" },
+  { k: "dimensions", label: "Dimensions & weight per unit" },
+  { k: "customisation", label: "Customisation (engraving, colours, inlay)" },
+  { k: "hand_or_machine", label: "Handmade / machine-assisted / both" },
+  { k: "packaging", label: "Packaging requirements" },
+  { k: "compliance", label: "Compliance (CITES, wood origin, coatings)" },
+];
+
+const FOOD_FIELDS = [
+  { k: "product_type", label: "Product type (spice, tea, coffee, dry ingredient)" },
+  { k: "form", label: "Form (whole, ground, blended, packaged)" },
+  { k: "grade", label: "Grade / quality tier" },
+  { k: "origin", label: "Origin region (if specific)" },
+  { k: "pack_size", label: "Retail or bulk pack size" },
+  { k: "shelf_life", label: "Required shelf life" },
+  { k: "labelling", label: "Labelling (private label, language, nutritional panel)" },
+  { k: "certifications", label: "Certifications (FSSAI, organic, USDA, EU, halal, kosher)" },
+  { k: "moisture_purity", label: "Moisture / purity spec (if known)" },
+];
+
+const CATEGORY_FIELDS = {
+  "Jewellery": JEWELLERY_FIELDS,
+  "Textiles": TEXTILE_FIELDS,
+  "Handicrafts": HANDICRAFT_FIELDS,
+  "Specialty foods": FOOD_FIELDS,
+};
+
 export default function SubmitRFQ() {
   const [step, setStep] = useState(1);
   const [f, setF] = useState({
@@ -33,7 +76,7 @@ export default function SubmitRFQ() {
     references: [],
     sample_required: false, desired_sample_date: "", desired_production_date: "",
     destination_country: "", destination_city: "",
-    payment_structure: "Open to discussion", current_sourcing: "", main_concern: "Supplier reliability",
+    current_sourcing: "", main_concern: "",
     category_fields: {},
     contact_name: "", contact_email: "", contact_company: "", contact_country: "",
   });
@@ -176,25 +219,24 @@ export default function SubmitRFQ() {
                     <option value="no">No</option><option value="yes">Yes</option>
                   </select>
                 </Row>
-                <Row label="Preferred payment structure"><select data-testid="f-payment" className="n-input" value={f.payment_structure} onChange={e=>set("payment_structure", e.target.value)}>{PAYMENT.map(x => <option key={x}>{x}</option>)}</select></Row>
                 <Row label="Desired sample date"><input data-testid="f-sample-date" type="date" className="n-input" value={f.desired_sample_date} onChange={e=>set("desired_sample_date", e.target.value)}/></Row>
                 <Row label="Desired production date"><input data-testid="f-prod-date" type="date" className="n-input" value={f.desired_production_date} onChange={e=>set("desired_production_date", e.target.value)}/></Row>
                 <Row label="Destination country"><input data-testid="f-country" className="n-input" value={f.destination_country} onChange={e=>set("destination_country", e.target.value)}/></Row>
                 <Row label="Destination city"><input data-testid="f-city" className="n-input" value={f.destination_city} onChange={e=>set("destination_city", e.target.value)}/></Row>
               </div>
-              <Row label="Current sourcing method"><input data-testid="f-current" className="n-input" value={f.current_sourcing} onChange={e=>set("current_sourcing", e.target.value)}/></Row>
-              <Row label="Main concern"><select data-testid="f-concern" className="n-input" value={f.main_concern} onChange={e=>set("main_concern", e.target.value)}>{CONCERNS.map(c=><option key={c}>{c}</option>)}</select></Row>
+              <Row label="Current sourcing method (optional)"><input data-testid="f-current" className="n-input" placeholder="How are you currently sourcing this? (optional)" value={f.current_sourcing} onChange={e=>set("current_sourcing", e.target.value)}/></Row>
+              <Row label="Main concern (optional)"><select data-testid="f-concern" className="n-input" value={f.main_concern} onChange={e=>set("main_concern", e.target.value)}><option value="">— Skip —</option>{CONCERNS.map(c=><option key={c}>{c}</option>)}</select></Row>
             </>}
-            {step === 4 && f.product_category === "Jewellery" && <>
+            {step === 4 && CATEGORY_FIELDS[f.product_category] && <>
               <div className="grid md:grid-cols-2 gap-4">
-                {JEWELLERY_FIELDS.map(({k, label}) => (
+                {CATEGORY_FIELDS[f.product_category].map(({k, label}) => (
                   <Row key={k} label={label}>
-                    <input data-testid={`fj-${k}`} className="n-input" value={f.category_fields[k] || ""} onChange={e=>setCat(k, e.target.value)} placeholder="Not sure — help me decide"/>
+                    <input data-testid={`fc-${k}`} className="n-input" value={f.category_fields[k] || ""} onChange={e=>setCat(k, e.target.value)} placeholder="Not sure — help me decide"/>
                   </Row>
                 ))}
               </div>
             </>}
-            {step === 4 && f.product_category !== "Jewellery" && (
+            {step === 4 && !CATEGORY_FIELDS[f.product_category] && (
               <div className="text-[14px]" style={{color: "var(--ink-2)"}}>Category-specific questions will appear here once you select a supported category. You can proceed and we'll follow up.</div>
             )}
             {step === 5 && <>
@@ -211,7 +253,7 @@ export default function SubmitRFQ() {
                   <dt style={{color:"var(--muted)"}}>Product</dt><dd>{f.product_name || "—"}</dd>
                   <dt style={{color:"var(--muted)"}}>Quantity</dt><dd>{f.quantity || "—"}</dd>
                   <dt style={{color:"var(--muted)"}}>Destination</dt><dd>{f.destination_country || "—"}</dd>
-                  <dt style={{color:"var(--muted)"}}>Payment</dt><dd>{f.payment_structure}</dd>
+                  <dt style={{color:"var(--muted)"}}>Sample required</dt><dd>{f.sample_required ? "Yes" : "No"}</dd>
                   <dt style={{color:"var(--muted)"}}>Files</dt><dd>{f.references.length}</dd>
                 </dl>
               </div>

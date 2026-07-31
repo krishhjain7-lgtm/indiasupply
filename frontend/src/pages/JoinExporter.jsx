@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
 const COMPANY_TYPES = ["Manufacturer", "Merchant exporter", "Export house", "Trading company"];
-const CATS = ["Jewellery", "Textiles", "Handicrafts", "Home decor", "Leather", "Specialty foods", "Other"];
+const CATS = ["Jewellery", "Textiles", "Handicrafts", "Specialty foods", "Other"];
 
 export default function JoinExporter() {
   const [f, setF] = useState({

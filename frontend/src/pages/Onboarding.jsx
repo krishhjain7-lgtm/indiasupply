@@ -58,7 +58,7 @@ export default function Onboarding() {
               <L label="WhatsApp*"><input data-testid="ob-e-wa" className="n-input" value={e.whatsapp} onChange={ev=>setE({...e, whatsapp: ev.target.value})}/></L>
               <L label="City*"><input data-testid="ob-e-city" className="n-input" value={e.city} onChange={ev=>setE({...e, city: ev.target.value})}/></L>
               <L label="State"><input data-testid="ob-e-state" className="n-input" value={e.state} onChange={ev=>setE({...e, state: ev.target.value})}/></L>
-              <L label="Main category"><select data-testid="ob-e-cat" className="n-input" value={e.main_category} onChange={ev=>setE({...e, main_category: ev.target.value})}>{["Jewellery","Textiles","Handicrafts","Home decor","Leather"].map(x=><option key={x}>{x}</option>)}</select></L>
+              <L label="Main category"><select data-testid="ob-e-cat" className="n-input" value={e.main_category} onChange={ev=>setE({...e, main_category: ev.target.value})}>{["Jewellery","Textiles","Handicrafts","Specialty foods"].map(x=><option key={x}>{x}</option>)}</select></L>
               <L label="Company type"><select data-testid="ob-e-type" className="n-input" value={e.company_type} onChange={ev=>setE({...e, company_type: ev.target.value})}>{["Manufacturer","Merchant exporter","Export house","Trading company"].map(x=><option key={x}>{x}</option>)}</select></L>
               <L label="Website / catalogue URL"><input data-testid="ob-e-web" className="n-input" value={e.website} onChange={ev=>setE({...e, website: ev.target.value})}/></L>
               <L label="Approx. min. order value"><input data-testid="ob-e-mov" className="n-input" value={e.min_order_value} onChange={ev=>setE({...e, min_order_value: ev.target.value})}/></L>
