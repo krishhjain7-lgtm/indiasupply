@@ -5,10 +5,10 @@ import { ArrowUpRight } from "lucide-react";
 
 const IMG_HERO_A = "https://images.unsplash.com/photo-1583937443566-6fe1a1c6e400?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
 const IMG_HERO_B = "https://images.unsplash.com/photo-1600166898405-da9535204843?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
-const IMG_HERO_C = "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200";
+const IMG_HERO_C = "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200&sat=-10";
 
 const IMG_CAT_JEWEL = "https://images.unsplash.com/photo-1609619742069-f5e18afeef17?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
-const IMG_CAT_TEXTILE = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
+const IMG_CAT_TEXTILE = "https://images.unsplash.com/photo-1600166898405-da9535204843?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
 const IMG_CAT_CRAFT = "https://images.unsplash.com/photo-1610701596007-11502861dcfa?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
 const IMG_CAT_FOOD = "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1000";
 
@@ -126,7 +126,7 @@ export default function Home() {
           <div className="mt-10 md:mt-14 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 md:gap-6">
             {CATEGORIES.map(c => (
               <article key={c.id} className="n-card overflow-hidden flex flex-col">
-                <div className="aspect-[4/3] bg-neutral-100 relative">
+                <div className="h-52 md:h-60 bg-neutral-100 relative overflow-hidden">
                   <img src={c.img} alt={c.title} className="w-full h-full object-cover"/>
                   <div className="absolute top-3 left-3">
                     <StatusPill kind={c.statusKind}>{c.status}</StatusPill>
@@ -142,10 +142,6 @@ export default function Home() {
               </article>
             ))}
           </div>
-          <p className="mt-8 text-[12.5px] max-w-2xl" style={{ color: "var(--muted)" }}>
-            Availability depends on product, destination, certifications, labelling requirements, and supplier compliance.
-            Norvian does not currently handle fresh produce, cold-chain products, medicines, supplements, or regulated pharmaceutical goods.
-          </p>
         </div>
       </section>
 
