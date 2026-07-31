@@ -295,31 +295,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* STARTING WITH JAIPUR */}
-      <section className="py-16 md:py-24 border-b" style={{ borderColor: "var(--border)" }}>
-        <div className="n-container grid md:grid-cols-12 gap-10 items-center">
-          <div className="md:col-span-5">
-            <img src={IMG_JAIPUR} className="w-full h-[320px] md:h-[440px] object-cover" alt="Jaipur workshop" />
-          </div>
-          <div className="md:col-span-7 md:pl-2">
-            <div className="n-label mb-4">Our first operating cluster</div>
-            <h2 className="text-[30px] md:text-[42px] leading-[1.05]" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              Starting narrow. Building for multiple export categories.
-            </h2>
-            <p className="mt-5 text-[15px] max-w-[600px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
-              We are launching with sterling-silver, vermeil, and coloured-gemstone jewellery in Jaipur,
-              where we can personally validate suppliers and supervise early orders. This gives us direct
-              operational control while we build the systems, supplier data, inspection standards, and
-              transaction history required to expand responsibly.
-            </p>
-            <div className="mt-8 grid grid-cols-2 gap-6 max-w-md">
-              <Metric label="Suppliers under review" value="Coming soon"/>
-              <Metric label="Active export lane" value="Jaipur jewellery"/>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* FINAL CTA */}
       <section className="py-16 md:py-28" style={{ background: "#fff" }}>
         <div className="n-container">
