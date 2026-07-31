@@ -75,7 +75,7 @@ export default function Home() {
       <section className="border-b n-hero-grain" style={{ borderColor: "var(--border)" }}>
         <div className="n-container pt-14 md:pt-24 pb-16 md:pb-20 grid md:grid-cols-12 gap-10 items-start">
           <div className="md:col-span-7">
-            <div className="n-label mb-6">Managed sourcing from India</div>
+            <div className="n-label mb-6">Responsible sourcing from India</div>
             <h1 className="text-[40px] sm:text-[52px] md:text-[72px] leading-[1] tracking-tight" style={{ fontFamily: "Cormorant Garamond, serif" }}>
               Reliability of a local supplier.{" "}
               <em style={{ color: "var(--bronze)", fontStyle: "italic" }}>Economics of Indian manufacturing.</em>
