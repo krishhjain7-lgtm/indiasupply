@@ -35,20 +35,27 @@ export function ForBuyers() {
   </>} cta={<Link to="/submit-rfq" className="n-btn-primary">Submit an RFQ</Link>}/>;
 }
 export function ForExporters() {
-  return <StaticPage kicker="For exporters" title="Serious buyers, structured requirements." body={<>
-    <p>Create a basic profile in minutes. Upload your catalogue and tell us what you produce.
-    We contact you when we have a relevant buyer requirement and collect detailed verification information
-    only when there is a real commercial opportunity.</p>
-    <p>You never see competing exporters. Buyer contact details are shared only when appropriate.</p>
+  return <StaticPage kicker="For Indian manufacturers and exporters" title="Receive structured requirements from serious overseas buyers." body={<>
+    <p>Create a basic capability profile and tell us what you manufacture, your production capacity, certifications,
+    export experience, MOQ, and target markets. Norvian requests detailed verification only when there is a
+    relevant commercial opportunity.</p>
+    <p>Your profile can include: product categories, manufacturing location, production capacity, MOQ, lead time,
+    export markets served, certifications, testing capability, customisation capability, private-labelling capability,
+    packaging capability, and existing export documentation.</p>
+    <p style={{ color: "var(--muted)", fontSize: 13 }}>We do not promise guaranteed leads, orders, or buyer access. Enquiries are matched to buyer requirements as they arise.</p>
   </>} cta={<Link to="/join-exporter" className="n-btn-bronze">Join as an Exporter</Link>}/>;
 }
 export function Jaipur() {
-  return <StaticPage kicker="Jaipur jewellery" title="The first export lane." body={<>
+  return <StaticPage kicker="Our first operating cluster" title="Starting narrow. Building for multiple categories." body={<>
     <p>Sterling-silver, vermeil, and coloured-gemstone jewellery from Jaipur. We have direct access
-    to the manufacturing cluster and personally oversee the first orders. This lets Norvian prove the workflow
-    end to end before extending to other Indian clusters.</p>
-    <p>Subsequent lanes: textiles, handicrafts, stone, and specialty foods.</p>
-  </>} cta={<Link to="/catalogue" className="n-btn-secondary">Browse catalogue</Link>}/>;
+    to the manufacturing cluster and personally oversee the first orders. This gives us the operational
+    control needed to build the systems, supplier data, inspection standards, and transaction history
+    required to expand responsibly.</p>
+    <p>The underlying workflow&mdash;requirement structuring, supplier matching, quotation comparison,
+    sample approval, production monitoring, inspection, documentation, and freight coordination&mdash;is
+    designed to extend across other Indian manufacturing clusters, starting with textiles, home products,
+    handicrafts, and selected shelf-stable speciality foods.</p>
+  </>} cta={<Link to="/submit-rfq" className="n-btn-primary">Submit an RFQ</Link>}/>;
 }
 export function Privacy() {
   return <StaticPage kicker="Privacy" title="Privacy policy" body={<>
