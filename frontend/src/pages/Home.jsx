@@ -267,10 +267,6 @@ export default function Home() {
               The scope of assurance depends on the product, supplier, destination, and individual order agreement.
               Every covered checkpoint must be written into the order before production begins.
             </p>
-            <p className="mt-4 text-[13px]" style={{ color: "var(--muted)" }}>
-              Norvian Assurance is not insurance and does not guarantee every commercial outcome.
-              Coverage is limited to the checkpoints and responsibilities stated in the individual order agreement.
-            </p>
           </div>
           <div className="md:col-span-7">
             <ul className="grid sm:grid-cols-2 gap-x-8">
