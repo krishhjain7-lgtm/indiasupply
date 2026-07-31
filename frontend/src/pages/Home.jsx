@@ -77,8 +77,8 @@ export default function Home() {
           <div className="md:col-span-7">
             <div className="n-label mb-6">Managed sourcing from India</div>
             <h1 className="text-[40px] sm:text-[52px] md:text-[72px] leading-[1] tracking-tight" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              Source from India without managing{" "}
-              <em style={{ color: "var(--bronze)", fontStyle: "italic" }}>six different intermediaries.</em>
+              Reliability of a local suppliers.{" "}
+              <em style={{ color: "var(--bronze)", fontStyle: "italic" }}>Economics of Indian manufacturing.</em>
             </h1>
             <p className="mt-7 md:mt-8 text-[17px] md:text-[16px] max-w-[620px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
               Norvian turns buyer requirements into verified suppliers, comparable quotations, approved samples,
