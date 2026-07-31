@@ -84,16 +84,9 @@ export default function Home() {
               Norvian turns buyer requirements into verified suppliers, comparable quotations, approved samples,
               monitored production, quality inspections, export documentation, and coordinated delivery.
             </p>
-            <p className="mt-5 text-[15px]" style={{ color: "var(--ink-2)" }}>
-              Starting with Jaipur jewellery.
-            </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link data-testid="hero-cta-rfq" to="/submit-rfq" className="n-btn-primary">Submit an RFQ <ArrowUpRight size={16} /></Link>
               <Link data-testid="hero-cta-sample" to="/sample-order" className="n-btn-secondary">View sample order</Link>
-            </div>
-            <div className="mt-6 flex items-center gap-2 text-[12px]" style={{ color: "var(--muted)" }}>
-              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--bronze)" }}/>
-              <span className="mono">First active lane: sterling-silver and coloured-gemstone jewellery from Jaipur.</span>
             </div>
           </div>
           <div className="md:col-span-5 md:pl-4 mt-6 md:mt-0">
