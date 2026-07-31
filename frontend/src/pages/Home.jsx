@@ -33,7 +33,7 @@ const STEPS = [
 ];
 
 const CATEGORIES = [
-  { id: "jewellery", title: "Jewellery and gemstones", desc: "Sterling silver, vermeil, coloured gemstones, private-label collections, and custom designs.", status: "LIVE NOW · JAIPUR", statusKind: "live", cta: "Source jewellery", img: IMG_CAT_JEWEL, href: "/submit-rfq?cat=Jewellery" },
+  { id: "jewellery", title: "Jewellery and gemstones", desc: "Sterling silver, vermeil, coloured gemstones, private-label collections, and custom designs.", status: "LIVE NOW", statusKind: "live", cta: "Source jewellery", img: IMG_CAT_JEWEL, href: "/submit-rfq?cat=Jewellery" },
   { id: "textiles", title: "Textiles and home", desc: "Home textiles, fabrics, rugs, table linen, soft furnishings, and private-label products.", status: "OPENING NEXT", statusKind: "next", cta: "Submit a textile requirement", img: IMG_CAT_TEXTILE, href: "/submit-rfq?cat=Textiles" },
   { id: "handicrafts", title: "Handicrafts and décor", desc: "Metalware, woodwork, marble, pottery, tabletop products, and decorative accessories.", status: "OPENING NEXT", statusKind: "next", cta: "Submit a product requirement", img: IMG_CAT_CRAFT, href: "/submit-rfq?cat=Handicrafts" },
   { id: "foods", title: "Speciality foods", desc: "Selected spices, tea, coffee, dry ingredients, and shelf-stable packaged products from export-ready producers.", status: "SELECTED SUPPLIERS ONLY", statusKind: "select", cta: "Discuss a food requirement", img: IMG_CAT_FOOD, href: "/submit-rfq?cat=Specialty%20foods" },
@@ -159,7 +159,7 @@ export default function Home() {
               <em style={{ color: "var(--bronze)" }}>Trusting the outcome is not.</em>
             </h2>
             <p className="mt-6 text-[15px] max-w-[560px]" style={{ color: "var(--ink-2)" }}>
-              International sourcing is still managed through supplier directories, agents, messages, spreadsheets,
+              International sourcing is still largely managed through supplier directories, agents, messages, spreadsheets,
               inspectors, freight forwarders, and disconnected payment negotiations. Buyers struggle to verify production
               capability and control quality. Exporters struggle to identify serious buyers and manage changing requirements.
             </p>
