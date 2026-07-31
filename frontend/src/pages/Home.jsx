@@ -215,7 +215,7 @@ export default function Home() {
           <div className="md:col-span-6">
             <div className="n-label mb-4">Example workflow</div>
             <h2 className="text-[30px] md:text-[42px] leading-[1.08]" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              See how a private-label jewellery order moves through Norvian.
+              See how a private-label jewellery order would move through Norvian.
             </h2>
             <p className="mt-5 text-[15px] max-w-[560px]" style={{ color: "var(--ink-2)" }}>
               The same operating structure is adapted to the specifications, inspections,
