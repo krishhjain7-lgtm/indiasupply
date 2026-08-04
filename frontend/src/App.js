@@ -15,6 +15,7 @@ import BuyerDashboard from "@/pages/BuyerDashboard";
 import ExporterDashboard from "@/pages/ExporterDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminRfqWorkspace from "@/pages/AdminRfqWorkspace";
+import ExporterPerformance from "@/pages/ExporterPerformance";
 import OrderDetail from "@/pages/OrderDetail";
 import { HowItWorks, ForBuyers, ForExporters, Jaipur, Privacy, Terms, RFQThanks, ExporterThanks, Login } from "@/pages/Static";
 
@@ -32,6 +33,7 @@ function DashboardRouter() {
         <Route path="rfqs" element={<AdminDashboard tab="rfqs"/>}/>
         <Route path="orders" element={<AdminDashboard tab="orders"/>}/>
         <Route path="companies" element={<AdminDashboard tab="companies"/>}/>
+        <Route path="performance" element={<ExporterPerformance/>}/>
         <Route path="users" element={<AdminDashboard tab="users"/>}/>
       </>}
       {user.role === "exporter" && <>

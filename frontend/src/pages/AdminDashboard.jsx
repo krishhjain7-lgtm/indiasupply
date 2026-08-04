@@ -12,6 +12,7 @@ const NAV = [
   { key: "rfqs", label: "RFQs", to: "/dashboard/rfqs" },
   { key: "orders", label: "Orders", to: "/dashboard/orders" },
   { key: "companies", label: "Companies", to: "/dashboard/companies" },
+  { key: "performance", label: "Performance", to: "/dashboard/performance" },
   { key: "users", label: "Users", to: "/dashboard/users" },
 ];
 

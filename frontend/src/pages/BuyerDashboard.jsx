@@ -4,6 +4,8 @@ import { useAuth } from "../lib/auth";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { statusLabel } from "../constants/status";
+import { SpecificationCard } from "../components/SpecificationCard";
+import { toast } from "sonner";
 
 const NAV = [
   { key: "overview", label: "Overview", to: "/dashboard" },
@@ -17,13 +19,31 @@ export default function BuyerDashboard({ tab = "overview" }) {
   const [rfqs, setRfqs] = useState([]);
   const [orders, setOrders] = useState([]);
   const [quotes, setQuotes] = useState([]);
+  const [specs, setSpecs] = useState({});
   const navigate = useNavigate();
-  useEffect(() => {
-    if (!user) return;
+
+  const load = () => {
     api.get("/rfqs").then(r => setRfqs(r.data)).catch(()=>{});
     api.get("/orders").then(r => setOrders(r.data)).catch(()=>{});
-    api.get("/buyer-quotations").then(r => setQuotes(r.data)).catch(()=>{});
-  }, [user]);
+    api.get("/buyer-quotations").then(async r => {
+      setQuotes(r.data);
+      const byRfq = {};
+      for (const rfqId of [...new Set(r.data.map(q => q.rfq_id))]) {
+        try { byRfq[rfqId] = (await api.get(`/specifications?rfq_id=${rfqId}`)).data; } catch { /* none yet */ }
+      }
+      setSpecs(byRfq);
+    }).catch(()=>{});
+  };
+  useEffect(() => { if (user) load(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const accept = async (q) => {
+    try {
+      await api.post(`/buyer-quotations/${q.buyer_quotation_id}/accept`);
+      toast.success("Quotation accepted — specification locked");
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+  };
+
   if (loading) return null;
   if (!user) return <Navigate to="/" />;
 
@@ -82,6 +102,29 @@ export default function BuyerDashboard({ tab = "overview" }) {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {(() => {
+                const forRfq = specs[q.rfq_id] || [];
+                const pending = forRfq.find(s => s.status === "proposed");
+                const locked = forRfq.find(s => s.status === "locked");
+                const shown = q.status === "accepted" ? locked : (pending || locked);
+                if (!shown) return null;
+                return (
+                  <div className="mt-6">
+                    <div className="n-label mb-2">
+                      {q.status === "accepted" ? "What production is measured against" : "Accepting locks this specification"}
+                    </div>
+                    <SpecificationCard spec={shown} compact/>
+                  </div>
+                );
+              })()}
+              {q.status !== "accepted" && (
+                <div className="mt-6 flex items-center gap-4 flex-wrap">
+                  <button data-testid={`bq-accept-${q.buyer_quotation_id}`} onClick={() => accept(q)} className="n-btn-primary">Accept quotation</button>
+                  <span className="text-[12px]" style={{ color: "var(--muted)" }}>
+                    Acceptance freezes the specification. Any later change needs your approval again.
+                  </span>
                 </div>
               )}
             </div>

@@ -5,6 +5,7 @@ import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import api from "../lib/api";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
+import { SpecificationCard } from "../components/SpecificationCard";
 
 const NAV = [
   { key: "overview", label: "Overview", to: "/dashboard" },
@@ -48,6 +49,7 @@ export default function AdminRfqWorkspace() {
   const [quotes, setQuotes] = useState([]);
   const [bq, setBq] = useState(null);
   const [invites, setInvites] = useState([]);
+  const [specs, setSpecs] = useState([]);
   const [tab, setTab] = useState("invite");
 
   const loadAll = async () => {
@@ -55,6 +57,7 @@ export default function AdminRfqWorkspace() {
     const q = await api.get(`/admin/quotations?rfq_id=${id}`); setQuotes(q.data);
     const b = await api.get(`/buyer-quotations?rfq_id=${id}`); setBq(b.data[0] || null);
     const i = await api.get(`/admin/invitations?rfq_id=${id}`); setInvites(i.data);
+    const s = await api.get(`/specifications?rfq_id=${id}`); setSpecs(s.data);
   };
   useEffect(() => { if (user?.role === "admin") loadAll(); }, [id, user]);
 
@@ -75,7 +78,7 @@ export default function AdminRfqWorkspace() {
       </div>
 
       <div className="mt-8 flex gap-6 border-b" style={{ borderColor: "var(--border)" }}>
-        {[["invite","Invitations"], ["compare","Comparison"], ["cost","Cost builder"], ["quote","Buyer quotation"], ["order","Create order"]].map(([k,l]) => (
+        {[["invite","Invitations"], ["compare","Comparison"], ["cost","Cost builder"], ["quote","Buyer quotation"], ["spec","Specification"], ["order","Create order"]].map(([k,l]) => (
           <button key={k} data-testid={`wk-tab-${k}`} onClick={()=>setTab(k)} className="pb-3 text-[13px]"
             style={{ borderBottom: tab===k?"2px solid var(--ink)":"2px solid transparent", color: tab===k?"var(--ink)":"var(--ink-2)", fontWeight: tab===k?600:400 }}>{l}</button>
         ))}
@@ -85,6 +88,7 @@ export default function AdminRfqWorkspace() {
       {tab === "compare" && <Compare rfqId={id} quotes={quotes} onChange={loadAll}/>}
       {tab === "cost" && <CostBuilder rfqId={id} quotes={quotes} bq={bq} onSaved={loadAll}/>}
       {tab === "quote" && <BuyerQuote bq={bq} onSaved={loadAll} rfqId={id}/>}
+      {tab === "spec" && <Specification rfqId={id} specs={specs} onChange={loadAll}/>}
       {tab === "order" && <OrderCreator rfqId={id} quotes={quotes} bq={bq} onCreated={(oid) => nav(`/dashboard/order/${oid}`)}/>}
     </DashboardLayout>
   );
@@ -418,6 +422,116 @@ function BuyerQuote({ bq, onSaved, rfqId }) {
         </div>
         {bq?.status && <div className="mono text-[11px] mt-3" style={{ color: "var(--bronze)" }}>Status · {bq.status.toUpperCase()}</div>}
       </div>
+    </div>
+  );
+}
+
+function Specification({ rfqId, specs, onChange }) {
+  const proposed = specs.find(s => s.status === "proposed");
+  const locked = specs.find(s => s.status === "locked");
+  const history = specs.filter(s => s.status === "superseded");
+  const [rows, setRows] = useState(proposed?.rows || []);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setRows(proposed?.rows || []); }, [proposed?.specification_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setRow = (i, patch) => setRows(rs => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
+
+  const propose = async () => {
+    setBusy(true);
+    try {
+      await api.post("/admin/specifications", { rfq_id: rfqId });
+      toast.success("Draft created from the requirement");
+      onChange();
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  const saveDraft = async () => {
+    setBusy(true);
+    try {
+      await api.patch(`/admin/specifications/${proposed.specification_id}`, { rows });
+      toast.success("Draft saved");
+      onChange();
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+  const reviseLocked = async () => {
+    setBusy(true);
+    try {
+      await api.post("/admin/specifications", { rfq_id: rfqId, rows: locked.rows });
+      toast.success(`Version drafted — the buyer must approve it before it takes effect`);
+      onChange();
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-8 space-y-8">
+      {locked && <SpecificationCard spec={locked}/>}
+
+      {proposed ? (
+        <div className="n-card p-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="n-label">Draft · v{proposed.version}</div>
+            <span className="mono text-[11px]" style={{ color: "var(--warn)" }}>AWAITING BUYER APPROVAL</span>
+          </div>
+          <p className="text-[12px] mt-2" style={{ color: "var(--ink-2)" }}>
+            Mark the attributes that stop a shipment if they fail. Critical rows are what pre-shipment
+            clearance is measured against. The draft locks when the buyer accepts the quotation.
+          </p>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead><tr className="mono text-[10px]" style={{ color: "var(--muted)" }}>
+                <th className="text-left py-2">Attribute</th>
+                <th className="text-left">Target</th>
+                <th className="text-left">Tolerance</th>
+                <th className="text-right">Critical</th>
+                <th/>
+              </tr></thead>
+              <tbody>{rows.map((r, i) => (
+                <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <td className="py-2 pr-2"><input className="n-input py-1.5 text-[12px]" value={r.name} onChange={e=>setRow(i,{name:e.target.value})}/></td>
+                  <td className="pr-2"><input data-testid={`spec-target-${i}`} className="n-input py-1.5 text-[12px]" value={r.target || ""} onChange={e=>setRow(i,{target:e.target.value})}/></td>
+                  <td className="pr-2"><input className="n-input py-1.5 text-[12px]" value={r.tolerance || ""} onChange={e=>setRow(i,{tolerance:e.target.value})}/></td>
+                  <td className="text-right pr-2">
+                    <input data-testid={`spec-critical-${i}`} type="checkbox" checked={!!r.critical} onChange={e=>setRow(i,{critical:e.target.checked})}/>
+                  </td>
+                  <td className="text-right"><button onClick={()=>setRows(rs=>rs.filter((_,j)=>j!==i))} style={{color:"var(--muted)"}}><Trash2 size={13}/></button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <button onClick={()=>setRows(rs=>[...rs,{name:"",target:"",tolerance:"",critical:false}])}
+            className="mono text-[11px] mt-3 inline-flex items-center gap-1"><Plus size={12}/> Add attribute</button>
+          <div className="mt-6">
+            <button data-testid="spec-save" disabled={busy} onClick={saveDraft} className="n-btn-primary">Save draft</button>
+          </div>
+        </div>
+      ) : locked ? (
+        <div className="n-card p-6">
+          <div className="n-label mb-2">Revision</div>
+          <p className="text-[13px]" style={{ color: "var(--ink-2)" }}>
+            v{locked.version} is locked and cannot be edited. A change starts a new version that the
+            buyer has to approve before it takes effect.
+          </p>
+          <button data-testid="spec-revise" disabled={busy} onClick={reviseLocked} className="n-btn-secondary mt-5">Draft the next version</button>
+        </div>
+      ) : (
+        <div className="n-card p-6">
+          <div className="n-label mb-2">No specification yet</div>
+          <p className="text-[13px]" style={{ color: "var(--ink-2)" }}>
+            Draft one from the requirement — the attributes the buyer answered on the RFQ become the
+            rows, so nothing is renamed between requirement and verification.
+          </p>
+          <button data-testid="spec-create" disabled={busy} onClick={propose} className="n-btn-primary mt-5">Draft from requirement</button>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div>
+          <div className="n-label mb-3">Superseded versions</div>
+          <div className="space-y-4">{history.map(s => <SpecificationCard key={s.specification_id} spec={s} compact/>)}</div>
+        </div>
+      )}
     </div>
   );
 }
