@@ -32,6 +32,16 @@ APP_NAME = os.environ.get("APP_NAME", "norvian")
 OWNER_EMAIL = os.environ.get("OWNER_EMAIL", "krishhjain7@gmail.com").lower()
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 
+# Browsers reject Access-Control-Allow-Origin: "*" on credentialed requests, so a wildcard here
+# means session cookies silently stop working in production. Refuse to boot instead of half-working.
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+if not CORS_ORIGINS or "*" in CORS_ORIGINS:
+    raise RuntimeError(
+        "CORS_ORIGINS must be set to an explicit comma-separated origin list "
+        "(e.g. CORS_ORIGINS=https://app.norvian.ai). A wildcard is invalid with "
+        "allow_credentials=True and breaks cookie authentication."
+    )
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("norvian")
 
@@ -731,6 +741,6 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"], allow_headers=["*"],
 )
