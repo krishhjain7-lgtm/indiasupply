@@ -39,6 +39,12 @@ const CATEGORIES = [
   { id: "foods", title: "Speciality foods", desc: "Selected spices, tea, coffee, dry ingredients, and shelf-stable packaged products from export-ready producers.", status: "LIVE NOW", statusKind: "live", cta: "Discuss a food requirement", img: IMG_CAT_FOOD, href: "/submit-rfq?cat=Specialty%20foods" },
 ];
 
+const CHECKPOINTS = [
+  ["01", "First article", "The first production units are measured against the locked specification before the run continues. A failed critical attribute stops production rather than being discovered at the end."],
+  ["02", "Mid run", "Production is checked again in progress. A critical failure holds the order, and a corrective action has to be recorded and re-inspected before the line moves on."],
+  ["03", "Pre-shipment", "Nothing ships until every critical attribute passes. Results, measurements, and inspection photographs stay attached to the order."],
+];
+
 const ASSURANCE = [
   "Written and approved product specification",
   "Supplier capability review",
@@ -249,6 +255,54 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* VERIFICATION */}
+      <section id="verification" className="py-16 md:py-24 border-b" style={{ borderColor: "var(--border)" }}>
+        <div className="n-container grid md:grid-cols-12 gap-10">
+          <div className="md:col-span-5">
+            <div className="n-label mb-4">Verification</div>
+            <h2 className="text-[32px] md:text-[46px] leading-[1.05]" style={{ fontFamily: "Cormorant Garamond, serif" }}>
+              A specification you approve.{" "}
+              <em style={{ color: "var(--bronze)" }}>Then production measured against it.</em>
+            </h2>
+            <p className="mt-6 text-[15px] max-w-[560px]" style={{ color: "var(--ink-2)" }}>
+              When you accept a quotation, the product specification is locked — materials, dimensions,
+              finish, plating, packaging, and the attributes marked critical. It cannot be edited
+              afterwards. A change is a new version that you approve again, and every inspection result
+              records which version it was measured against.
+            </p>
+            <p className="mt-5 text-[15px] max-w-[560px]" style={{ color: "var(--ink-2)" }}>
+              Shipment clearance requires all critical production specifications to pass verification.
+              Payment and shipment approval can be tied to verified production milestones.
+            </p>
+          </div>
+          <div className="md:col-span-7">
+            <ul>
+              {CHECKPOINTS.map(([n, t, d]) => (
+                <li key={n} className="grid grid-cols-[46px_1fr] md:grid-cols-[60px_1fr] gap-5 md:gap-6 py-5 md:py-6 border-b" style={{ borderColor: "var(--border)" }}>
+                  <div className="mono text-[12px]" style={{ color: "var(--bronze)" }}>{n}</div>
+                  <div>
+                    <div style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 22 }} className="md:text-[24px] leading-snug">{t}</div>
+                    <div className="text-[14px] mt-2 leading-relaxed" style={{ color: "var(--ink-2)" }}>{d}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 n-card p-5 md:p-6" style={{ borderLeft: "3px solid var(--bronze)" }}>
+              <div className="n-label mb-2">Every order improves the next match</div>
+              <p className="text-[14px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
+                Each completed run leaves a record: specification conformance, on-time completion,
+                corrective actions raised, and lead time — broken down by attribute. Those records are
+                what we use to choose who quotes on the next requirement, so matching gets better with
+                every order rather than starting from a directory listing each time.
+              </p>
+              <div className="mono text-[10px] mt-4" style={{ color: "var(--muted)" }}>
+                PERFORMANCE METRICS ARE GENERATED FROM VERIFIED PRODUCTION RUNS.
+              </div>
             </div>
           </div>
         </div>
