@@ -6,7 +6,7 @@ AI-assisted RFQ improvement (Claude Sonnet 4.5 via Emergent LLM key),
 Resend transactional email, Emergent managed Object Storage for files,
 demo seeding for YC review.
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
 from fastapi.responses import Response as FastResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -17,7 +17,7 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-import os, uuid, logging, json, httpx, requests, asyncio
+import os, uuid, logging, json, httpx, requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
