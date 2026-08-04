@@ -310,6 +310,12 @@ async def onboard_exporter(body: ExporterOnboardingReq, user: dict = Depends(req
         "company_id": company_id, "full_name": body.contact_name, "work_email": body.work_email,
         "onboarded": True,
     }})
+    # Claim invitations addressed to this exporter by email before they had an account.
+    await db.exporter_invitations.update_many(
+        {"exporter_company_id": None,
+         "invited_email": {"$in": [body.work_email.lower(), (user.get("email") or "").lower()]}},
+        {"$set": {"exporter_company_id": company_id}},
+    )
     await send_email(body.work_email, "Norvian — Application Received",
         f"<p>Hi {body.contact_name},</p><p>Thanks for applying. Your profile has been received. We will contact you when we have a relevant buyer requirement.</p><p>— Norvian</p>")
     return await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
@@ -451,6 +457,10 @@ async def get_rfq(rfq_id: str, user: dict = Depends(require_user)):
         inv = await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": cid}) if cid else None
         if not inv:
             raise HTTPException(403, "Forbidden")
+        if inv.get("status") == "invited":
+            await db.exporter_invitations.update_one(
+                {"invitation_id": inv["invitation_id"]},
+                {"$set": {"status": "viewed", "viewed_at": datetime.now(timezone.utc).isoformat()}})
         rfq = exporter_rfq(rfq)
     return rfq
 
@@ -542,15 +552,100 @@ async def create_catalogue_product(body: CatalogueProduct, user: dict = Depends(
     return doc
 
 # ---------- Exporter Invitations & Quotations ----------
+INVITATION_STATUSES = ("invited", "viewed", "quoted", "declined")
+
 class InviteReq(BaseModel):
     rfq_id: str
-    exporter_company_id: str
+    # Either an exporter already on the platform, or an email address for one that is not.
+    exporter_company_id: Optional[str] = None
+    email: Optional[EmailStr] = None
+    company_name: Optional[str] = None
+
+async def invitation_email(rfq: dict, to: str, company_name: Optional[str] = None):
+    """The exporter is told what is being asked for — never who is asking."""
+    await send_email(
+        to,
+        f"Norvian — requirement {rfq.get('rfq_number')} ({rfq.get('product_category')})",
+        f"<p>Hello{(' ' + company_name) if company_name else ''},</p>"
+        f"<p>You have been invited to quote on a buyer requirement.</p>"
+        f"<ul><li>Reference: <strong>{rfq.get('rfq_number')}</strong></li>"
+        f"<li>Product: {rfq.get('product_name')}</li>"
+        f"<li>Quantity: {rfq.get('quantity')}</li>"
+        f"<li>Destination: {rfq.get('destination_country')}</li></ul>"
+        f"<p>Sign in to Norvian to see the full specification and submit a quotation.</p>"
+        f"<p>— Norvian</p>",
+    )
 
 @api.post("/admin/invitations")
 async def invite(body: InviteReq, user: dict = Depends(require_admin)):
+    if not body.exporter_company_id and not body.email:
+        raise HTTPException(422, "Provide an exporter company or an email address")
+    rfq = await db.rfqs.find_one({"rfq_id": body.rfq_id}, {"_id": 0})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+
+    company = None
+    if body.exporter_company_id:
+        company = await db.companies.find_one({"company_id": body.exporter_company_id}, {"_id": 0})
+        if not company:
+            raise HTTPException(404, "Not found")
+        existing = await db.exporter_invitations.find_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": body.exporter_company_id}, {"_id": 0})
+        if existing:
+            return existing
+
+    invited_email = body.email or (company or {}).get("work_email")
+    if not invited_email and company:
+        owner = await db.users.find_one({"user_id": company.get("owner_user_id")}, {"_id": 0})
+        invited_email = (owner or {}).get("work_email") or (owner or {}).get("email")
+
     inv_id = f"inv_{uuid.uuid4().hex[:10]}"
-    await db.exporter_invitations.insert_one({"invitation_id": inv_id, "rfq_id": body.rfq_id, "exporter_company_id": body.exporter_company_id, "status": "invited", "created_at": datetime.now(timezone.utc).isoformat()})
-    return {"invitation_id": inv_id}
+    doc = {
+        "invitation_id": inv_id, "rfq_id": body.rfq_id,
+        "exporter_company_id": body.exporter_company_id,
+        "invited_email": (invited_email or "").lower() or None,
+        "company_name": body.company_name or (company or {}).get("name"),
+        "status": "invited", "invited_by": user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.exporter_invitations.insert_one(doc)
+    doc.pop("_id", None)
+    if invited_email:
+        await invitation_email(rfq, invited_email, doc["company_name"])
+    await db.activity_logs.insert_one({"kind": "exporter_invited", "rfq_id": body.rfq_id,
+                                       "invitation_id": inv_id, "by": user["user_id"],
+                                       "at": datetime.now(timezone.utc).isoformat()})
+    return doc
+
+@api.get("/admin/invitations")
+async def admin_list_invitations(rfq_id: str, user: dict = Depends(require_admin)):
+    return await db.exporter_invitations.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+@api.get("/invitations")
+async def list_invitations(user: dict = Depends(require_user)):
+    """An exporter's own invitations, each with the requirement attached and the buyer scrubbed."""
+    if user.get("role") != "exporter":
+        raise HTTPException(403, "Exporters only")
+    cid = company_scope(user)
+    if not cid:
+        return []
+    invs = await db.exporter_invitations.find({"exporter_company_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    out = []
+    for inv in invs:
+        rfq = await db.rfqs.find_one({"rfq_id": inv["rfq_id"]}, {"_id": 0})
+        out.append({**inv, "rfq": exporter_rfq(rfq) if rfq else None})
+    return out
+
+@api.post("/invitations/{invitation_id}/decline")
+async def decline_invitation(invitation_id: str, user: dict = Depends(require_user)):
+    cid = company_scope(user)
+    inv = await db.exporter_invitations.find_one(
+        {"invitation_id": invitation_id, "exporter_company_id": cid}, {"_id": 0}) if cid else None
+    if not inv:
+        raise HTTPException(404, "Not found")
+    await db.exporter_invitations.update_one({"invitation_id": invitation_id}, {"$set": {
+        "status": "declined", "declined_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True, "status": "declined"}
 
 @api.get("/admin/companies")
 async def list_companies(kind: Optional[str] = None, user: dict = Depends(require_admin)):
@@ -594,6 +689,10 @@ async def submit_quotation(body: QuotationCreate, user: dict = Depends(require_u
     doc = {"quotation_id": qid, "exporter_company_id": user.get("company_id"), **body.model_dump(), "status": "submitted", "created_at": datetime.now(timezone.utc).isoformat()}
     await db.exporter_quotations.insert_one(doc)
     doc.pop("_id", None)
+    if user.get("role") == "exporter":
+        await db.exporter_invitations.update_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": company_scope(user)},
+            {"$set": {"status": "quoted", "quoted_at": datetime.now(timezone.utc).isoformat()}})
     return doc
 
 @api.get("/quotations")
