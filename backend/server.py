@@ -1006,7 +1006,10 @@ async def list_specifications(rfq_id: Optional[str] = None, order_id: Optional[s
         return []
     if not await spec_visible_to(user, docs[0]):
         raise HTTPException(404, "Not found")
-    # A proposed version is an internal draft until the buyer has seen it in the approval step.
+    if user.get("role") == "exporter":
+        # A proposal is an internal draft between admin and buyer. An exporter is only ever
+        # shown what was actually agreed.
+        docs = [d for d in docs if d["status"] != "proposed"]
     return docs
 
 # ---------- Buyer acceptance ----------

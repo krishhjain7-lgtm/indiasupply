@@ -421,13 +421,24 @@ class TestVerifiedProductionRun:
         assert specs["1.1"]["status"] == "locked"
         assert specs["1.0"]["status"] == "superseded"
 
-    def test_exporter_cannot_approve_a_specification(self, backend, ctx):
+    def test_exporter_sees_only_agreed_versions(self, backend, ctx):
+        """A draft is an internal conversation between admin and buyer."""
         admin, exporter = ctx["admin"], ctx["exporter"]
         backend.store.insert("exporter_invitations", {
             "invitation_id": f"inv_{uuid.uuid4().hex[:8]}", "rfq_id": ctx["rfq_id"],
             "exporter_company_id": exporter.company_id, "status": "invited"})
-        proposal = admin.post("/api/admin/specifications", json={
+        admin.post("/api/admin/specifications", json={
             "rfq_id": ctx["rfq_id"],
-            "rows": [{"name": "finish", "target": "Matte", "critical": False}]}).json()
+            "rows": [{"name": "finish", "target": "Matte, unapproved", "critical": False}]})
+
+        seen = exporter.get(f"/api/specifications?rfq_id={ctx['rfq_id']}").json()
+        assert seen, "invited exporter should see the agreed specification"
+        assert all(s["status"] != "proposed" for s in seen), "exporter saw an unapproved draft"
+        assert any(s["status"] == "locked" for s in seen)
+
+    def test_exporter_cannot_approve_a_specification(self, ctx):
+        admin, exporter = ctx["admin"], ctx["exporter"]
+        proposal = next(s for s in admin.get(f"/api/specifications?rfq_id={ctx['rfq_id']}").json()
+                        if s["status"] == "proposed")
         r = exporter.post(f"/api/specifications/{proposal['specification_id']}/approve")
         assert r.status_code == 404, f"exporter approved a specification ({r.status_code})"
