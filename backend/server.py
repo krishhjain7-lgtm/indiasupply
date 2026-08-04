@@ -6,10 +6,11 @@ AI-assisted RFQ improvement (Claude Sonnet 4.5 via Emergent LLM key),
 Resend transactional email, Emergent managed Object Storage for files,
 demo seeding for YC review.
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Depends, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import Response as FastResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
@@ -370,6 +371,13 @@ async def create_rfq(body: RFQCreate, request: Request):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.rfqs.insert_one(doc)
+    # Attach uploaded references to the RFQ so invited exporters can read them (files are
+    # uploaded before the RFQ exists, so the link can only be made here).
+    if user and body.references:
+        await db.files.update_many(
+            {"file_id": {"$in": list(body.references)}, "user_id": user["user_id"]},
+            {"$set": {"rfq_id": rfq_id}},
+        )
     # Notify admin owner
     await send_email(OWNER_EMAIL, f"New RFQ {rfq_number}",
         f"<p>New RFQ received.</p><ul><li>Product: {body.product_name}</li><li>Category: {body.product_category}</li><li>Qty: {body.quantity}</li><li>Destination: {body.destination_country}</li></ul>")
@@ -686,36 +694,51 @@ async def replace_milestones(order_id: str, body: MilestoneUpdate, user: dict = 
 
 
 # ---------- Files ----------
+async def can_read_file(user: dict, rec: dict) -> bool:
+    """Fail closed: a file with no recorded owner is readable only by its uploader and admin."""
+    if user.get("role") == "admin":
+        return True
+    if rec.get("user_id") == user.get("user_id"):
+        return True
+    cid = company_scope(user)
+    if not cid:
+        return False
+    if rec.get("owner_company_id") and rec["owner_company_id"] == cid:
+        return True
+    rfq_id = rec.get("rfq_id")
+    if not rfq_id:
+        return False
+    if user.get("role") == "buyer":
+        rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0, "buyer_company_id": 1})
+        return bool(rfq and rfq.get("buyer_company_id") == cid)
+    if user.get("role") == "exporter":
+        return bool(await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": cid}))
+    return False
+
 @api.post("/files/upload")
-async def upload_file(file: UploadFile = File(...), user: dict = Depends(require_user)):
+async def upload_file(file: UploadFile = File(...), rfq_id: Optional[str] = Form(None),
+                      user: dict = Depends(require_user)):
     ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin"
     path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4()}.{ext}"
     data = await file.read()
-    result = put_object(path, data, file.content_type or "application/octet-stream")
+    result = await run_in_threadpool(put_object, path, data, file.content_type or "application/octet-stream")
     file_id = f"file_{uuid.uuid4().hex[:10]}"
     await db.files.insert_one({
         "file_id": file_id, "storage_path": result["path"],
         "original_filename": file.filename, "content_type": file.content_type,
         "size": result.get("size", len(data)), "user_id": user["user_id"],
+        "owner_company_id": company_scope(user), "rfq_id": rfq_id,
         "is_deleted": False, "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"file_id": file_id, "path": result["path"], "filename": file.filename}
 
 @api.get("/files/{file_id}")
-async def download_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
-    # Fallback token via query for <img src>
-    if auth and "session_token" not in request.cookies:
-        sess = await db.user_sessions.find_one({"session_token": auth})
-        if not sess:
-            raise HTTPException(401)
-    else:
-        u = await get_current_user(request)
-        if not u:
-            raise HTTPException(401)
+async def download_file(file_id: str, user: dict = Depends(require_user)):
     rec = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
-    if not rec:
+    # 404 on both "missing" and "not yours" — a 403 would confirm the file id exists.
+    if not rec or not await can_read_file(user, rec):
         raise HTTPException(404, "Not found")
-    data, ct = get_object(rec["storage_path"])
+    data, ct = await run_in_threadpool(get_object, rec["storage_path"])
     return FastResponse(content=data, media_type=rec.get("content_type") or ct)
 
 # ---------- Admin overview ----------
