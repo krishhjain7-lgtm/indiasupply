@@ -15,6 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 import os, uuid, logging, json, httpx, requests, asyncio
 
@@ -46,7 +47,12 @@ if not CORS_ORIGINS or "*" in CORS_ORIGINS:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("norvian")
 
-app = FastAPI(title="Norvian API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup()
+    yield
+
+app = FastAPI(title="Norvian API", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 # ---------- Storage ----------
@@ -235,17 +241,6 @@ async def logout(request: Request, response: Response):
         await db.user_sessions.delete_one({"session_token": token})
     response.delete_cookie("session_token", path="/")
     return {"ok": True}
-
-@api.post("/auth/set-role")
-async def set_role(body: dict, user: dict = Depends(require_user)):
-    role = body.get("role")
-    if role not in ("buyer", "exporter"):
-        raise HTTPException(400, "invalid role")
-    # Do not downgrade admin
-    if user.get("role") == "admin":
-        return user
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"role": role}})
-    return await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
 
 # ---------- Onboarding ----------
 class BuyerOnboardingReq(BaseModel):
@@ -903,10 +898,9 @@ async def demo_sample_order():
     return await db.demo_sample.find_one({"kind": "yc_demo_order"}, {"_id": 0}) or {}
 
 # ---------- Startup: seed demo + storage ----------
-@app.on_event("startup")
 async def startup():
     try:
-        init_storage()
+        await run_in_threadpool(init_storage)
     except Exception:
         pass
     # Ensure owner user exists as admin
