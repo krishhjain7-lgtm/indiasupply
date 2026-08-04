@@ -303,15 +303,6 @@ export default function Home() {
   );
 }
 
-function Metric({ label, value }) {
-  return (
-    <div>
-      <div className="n-label">{label}</div>
-      <div className="mt-2 text-[18px]" style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 22 }}>{value}</div>
-    </div>
-  );
-}
-
 function StatusPill({ children, kind = "live", className = "" }) {
   const styles = {
     live: { bg: "#EAF3EC", fg: "#2E5D3F", bd: "#C5DECC" },
