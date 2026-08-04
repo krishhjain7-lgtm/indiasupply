@@ -73,17 +73,21 @@ class Harness:
     def anonymous(self):
         return ApiClient(self._call)
 
-    def api(self, role, company_id=None, **extra):
-        """Seed a user + session for ``role`` and return a client authenticated as them."""
+    def api(self, role, company_id=None, with_company=True, **extra):
+        """Seed a user + session for ``role`` and return a client authenticated as them.
+
+        ``with_company=False`` models a signed-in user who has not onboarded yet — the state
+        that used to match anonymous records on a null company_id.
+        """
         uid = f"test-{role}-{uuid.uuid4().hex[:8]}"
         token = f"tok_{uuid.uuid4().hex}"
-        cid = company_id or f"co_test_{uuid.uuid4().hex[:8]}"
+        cid = (company_id or f"co_test_{uuid.uuid4().hex[:8]}") if with_company else None
         self.store.insert("users", {
             "user_id": uid,
             "email": f"{uid}@example.com",
             "name": f"Test {role}",
             "role": role,
-            "onboarded": True,
+            "onboarded": with_company,
             "company_id": cid,
             "created_at": utcnow(),
             **extra,
