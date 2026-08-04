@@ -766,6 +766,29 @@ async def admin_list_quotations(rfq_id: str, user: dict = Depends(require_admin)
     return await db.exporter_quotations.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
 
 # ---------- Orders & Milestones ----------
+# Order states. cleared_to_ship replaces a hand-set "ready to ship": an order reaches it only
+# by passing pre-shipment verification, and production_hold / shipment_blocked have no path to
+# shipping at all.
+ORDER_STATUS_FLOW: Dict[str, List[str]] = {
+    "awaiting_deposit":   ["in_production", "disputed", "closed"],
+    "in_production":      ["quality_inspection", "production_hold", "disputed"],
+    "production_hold":    ["in_production", "disputed", "closed"],
+    "quality_inspection": ["cleared_to_ship", "shipment_blocked", "production_hold", "in_production", "disputed"],
+    "shipment_blocked":   ["quality_inspection", "production_hold", "disputed"],
+    "cleared_to_ship":    ["shipped", "disputed"],
+    "shipped":            ["delivered", "disputed"],
+    "delivered":          ["closed", "disputed"],
+    "disputed":           ["in_production", "closed"],
+    "closed":             [],
+}
+ORDER_STATUSES = tuple(ORDER_STATUS_FLOW)
+ORDER_COMPLETION_STATES = ("delivered", "closed")
+
+@api.get("/meta/order-statuses")
+async def order_status_meta(user: dict = Depends(require_user)):
+    return {"statuses": list(ORDER_STATUSES), "transitions": ORDER_STATUS_FLOW,
+            "completion": list(ORDER_COMPLETION_STATES)}
+
 class OrderMilestone(BaseModel):
     label: str
     percent: float
@@ -821,6 +844,16 @@ class MilestoneUpdate(BaseModel):
 @api.patch("/admin/orders/{order_id}")
 async def update_order(order_id: str, body: dict, user: dict = Depends(require_admin)):
     body.pop("_id", None); body.pop("order_id", None); body.pop("created_at", None)
+    order = await order_or_404(order_id)
+    new_status = body.get("status")
+    if new_status is not None:
+        if new_status not in ORDER_STATUS_FLOW:
+            raise HTTPException(422, f"Unknown order status '{new_status}'")
+        current = order.get("status") or "awaiting_deposit"
+        if new_status != current and new_status not in ORDER_STATUS_FLOW.get(current, []):
+            # production_hold and shipment_blocked have no route to shipping: an order on hold
+            # cannot be advanced past verification by hand.
+            raise HTTPException(422, f"Illegal transition {current} -> {new_status}")
     await db.orders.update_one({"order_id": order_id}, {"$set": body})
     await db.activity_logs.insert_one({"kind": "order_update", "order_id": order_id, "by": user["user_id"], "fields": list(body.keys()), "at": datetime.now(timezone.utc).isoformat()})
     return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
@@ -994,6 +1027,124 @@ async def accept_buyer_quotation(bqid: str, user: dict = Depends(require_user)):
         await approve_specification(spec["specification_id"], user)
     updated = await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
     return public_quotation(updated)
+
+# ---------- Inspections ----------
+INSPECTION_TYPES = ("first_article", "mid_run", "pre_shipment")
+
+class Measurement(BaseModel):
+    name: str
+    target: str = ""
+    result: str = ""
+    status: str = "pass"   # pass | fail
+
+class InspectionCreate(BaseModel):
+    order_id: str
+    type: str
+    inspector: str
+    measurements: List[Measurement]
+    notes: Optional[str] = None
+    evidence: Optional[List[str]] = []
+
+class CorrectiveAction(BaseModel):
+    text: str
+    owner: str
+
+async def order_or_404(order_id: str) -> dict:
+    order = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Not found")
+    return order
+
+async def set_order_state(order_id: str, status: str, by: str, **extra):
+    await db.orders.update_one({"order_id": order_id}, {"$set": {"status": status, **extra}})
+    await db.activity_logs.insert_one({"kind": "order_status", "order_id": order_id,
+                                       "to": status, "by": by,
+                                       "at": datetime.now(timezone.utc).isoformat()})
+
+@api.post("/admin/inspections")
+async def create_inspection(body: InspectionCreate, user: dict = Depends(require_admin)):
+    if body.type not in INSPECTION_TYPES:
+        raise HTTPException(422, f"Unknown inspection type '{body.type}'")
+    order = await order_or_404(body.order_id)
+    spec = await latest_locked_spec(order["rfq_id"])
+    if not spec:
+        raise HTTPException(409, "No locked specification — nothing to verify against")
+
+    previous = await db.inspections.find({"order_id": body.order_id, "type": body.type}, {"_id": 0}) \
+        .sort("round", -1).to_list(50)
+    round_no = (previous[0]["round"] + 1) if previous else 1
+    if previous and previous[0]["outcome"] == "fail" and not previous[0].get("corrective_action"):
+        raise HTTPException(409, "Record a corrective action on the failed inspection before re-inspecting")
+
+    critical_by_name = {r["name"]: bool(r.get("critical")) for r in spec["rows"]}
+    measurements = []
+    for m in body.measurements:
+        d = m.model_dump()
+        if d["status"] not in ("pass", "fail"):
+            raise HTTPException(422, "Measurement status must be pass or fail")
+        d["critical"] = critical_by_name.get(d["name"], False)
+        measurements.append(d)
+    critical_failures = [m for m in measurements if m["critical"] and m["status"] == "fail"]
+    outcome = "fail" if any(m["status"] == "fail" for m in measurements) else "pass"
+
+    doc = {
+        "inspection_id": f"insp_{uuid.uuid4().hex[:10]}",
+        "order_id": body.order_id, "rfq_id": order["rfq_id"],
+        "specification_id": spec["specification_id"], "spec_version": spec["version"],
+        "type": body.type, "round": round_no,
+        "inspector": body.inspector, "inspected_at": datetime.now(timezone.utc).isoformat(),
+        "measurements": measurements, "notes": body.notes, "evidence": body.evidence or [],
+        "corrective_action": None, "outcome": outcome,
+        "critical_failures": len(critical_failures),
+        "created_by": user["user_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.inspections.insert_one(doc)
+    doc.pop("_id", None)
+
+    # A failed critical measurement stops the line. Anything else is recorded but not blocking.
+    if critical_failures:
+        if body.type == "pre_shipment":
+            await set_order_state(body.order_id, "shipment_blocked", user["user_id"],
+                                  hold={"inspection_id": doc["inspection_id"], "since": doc["inspected_at"]})
+        else:
+            await set_order_state(body.order_id, "production_hold", user["user_id"],
+                                  hold={"inspection_id": doc["inspection_id"], "since": doc["inspected_at"]})
+    elif body.type == "pre_shipment":
+        await set_order_state(body.order_id, "cleared_to_ship", user["user_id"], hold=None)
+    elif order.get("hold") and round_no > 1:
+        # A passing re-inspection clears the hold and records that the non-conformance was
+        # corrected during production rather than shipped.
+        await set_order_state(body.order_id, "in_production", user["user_id"], hold=None)
+        await db.inspections.update_one({"inspection_id": doc["inspection_id"]},
+                                        {"$set": {"cleared_hold": True}})
+        doc["cleared_hold"] = True
+    return doc
+
+@api.post("/admin/inspections/{inspection_id}/corrective-action")
+async def record_corrective_action(inspection_id: str, body: CorrectiveAction,
+                                   user: dict = Depends(require_admin)):
+    insp = await db.inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(404, "Not found")
+    if insp["outcome"] != "fail":
+        raise HTTPException(409, "Corrective actions are recorded against a failed inspection")
+    action = {"text": body.text, "owner": body.owner,
+              "recorded_at": datetime.now(timezone.utc).isoformat()}
+    await db.inspections.update_one({"inspection_id": inspection_id},
+                                    {"$set": {"corrective_action": action}})
+    return await db.inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+
+@api.get("/inspections")
+async def list_inspections(order_id: str, user: dict = Depends(require_user)):
+    order = await order_or_404(order_id)
+    if user.get("role") == "buyer":
+        cid = company_scope(user)
+        rfq = await db.rfqs.find_one({"rfq_id": order["rfq_id"]}, {"_id": 0, "buyer_company_id": 1})
+        if not cid or not rfq or rfq.get("buyer_company_id") != cid:
+            raise HTTPException(404, "Not found")
+    elif user.get("role") == "exporter" and order.get("exporter_company_id") != company_scope(user):
+        raise HTTPException(404, "Not found")
+    return await db.inspections.find({"order_id": order_id}, {"_id": 0}).sort("inspected_at", 1).to_list(200)
 
 # ---------- Files ----------
 async def can_read_file(user: dict, rec: dict) -> bool:
