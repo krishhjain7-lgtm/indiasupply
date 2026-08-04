@@ -59,7 +59,7 @@ export default function AdminRfqWorkspace() {
     const i = await api.get(`/admin/invitations?rfq_id=${id}`); setInvites(i.data);
     const s = await api.get(`/specifications?rfq_id=${id}`); setSpecs(s.data);
   };
-  useEffect(() => { if (user?.role === "admin") loadAll(); }, [id, user]);
+  useEffect(() => { if (user?.role === "admin") loadAll(); }, [id, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return null;
   if (!user) return <Navigate to="/"/>;
