@@ -357,6 +357,35 @@ class RFQCreate(BaseModel):
 def next_rfq_number():
     return f"NRV-{datetime.now().strftime('%Y%m')}-{uuid.uuid4().hex[:5].upper()}"
 
+# ---------- RFQ status vocabulary ----------
+# The single definition of the status vocabulary and the legal moves between states. Served to
+# the dashboard at /api/meta/rfq-statuses so the UI cannot drift from what the API will accept.
+RFQ_STATUS_FLOW: Dict[str, List[str]] = {
+    "submitted":                ["needs_clarification", "under_review", "rejected"],
+    "needs_clarification":      ["under_review", "rejected"],
+    "under_review":             ["needs_clarification", "sent_for_quotation", "rejected"],
+    "sent_for_quotation":       ["quotations_received", "needs_clarification", "rejected"],
+    "quotations_received":      ["buyer_quotation_prepared", "sent_for_quotation", "rejected"],
+    "buyer_quotation_prepared": ["sample_requested", "awaiting_deposit", "quotations_received", "rejected"],
+    "sample_requested":         ["sample_in_progress", "rejected"],
+    "sample_in_progress":       ["sample_approved", "sample_requested", "rejected"],
+    "sample_approved":          ["awaiting_deposit", "rejected"],
+    "awaiting_deposit":         ["in_production", "disputed", "closed"],
+    "in_production":            ["quality_inspection", "disputed"],
+    "quality_inspection":       ["ready_to_ship", "in_production", "disputed"],
+    "ready_to_ship":            ["shipped", "disputed"],
+    "shipped":                  ["delivered", "disputed"],
+    "delivered":                ["closed", "disputed"],
+    "disputed":                 ["under_review", "closed"],
+    "closed":                   [],
+    "rejected":                 [],
+}
+RFQ_STATUSES = tuple(RFQ_STATUS_FLOW)
+
+@api.get("/meta/rfq-statuses")
+async def rfq_status_meta(user: dict = Depends(require_user)):
+    return {"statuses": list(RFQ_STATUSES), "transitions": RFQ_STATUS_FLOW}
+
 @api.post("/rfqs")
 async def create_rfq(body: RFQCreate, request: Request):
     user = await get_current_user(request)
@@ -427,9 +456,18 @@ async def get_rfq(rfq_id: str, user: dict = Depends(require_user)):
 
 @api.patch("/rfqs/{rfq_id}/status")
 async def update_rfq_status(rfq_id: str, body: dict, user: dict = Depends(require_admin)):
-    await db.rfqs.update_one({"rfq_id": rfq_id}, {"$set": {"status": body.get("status")}})
-    await db.activity_logs.insert_one({"kind": "rfq_status", "rfq_id": rfq_id, "by": user["user_id"], "to": body.get("status"), "at": datetime.now(timezone.utc).isoformat()})
-    return {"ok": True}
+    new = body.get("status")
+    if new not in RFQ_STATUS_FLOW:
+        raise HTTPException(422, f"Unknown status '{new}'")
+    rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0, "status": 1})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+    current = rfq.get("status") or "submitted"
+    if new != current and new not in RFQ_STATUS_FLOW.get(current, []):
+        raise HTTPException(422, f"Illegal transition {current} -> {new}")
+    await db.rfqs.update_one({"rfq_id": rfq_id}, {"$set": {"status": new}})
+    await db.activity_logs.insert_one({"kind": "rfq_status", "rfq_id": rfq_id, "by": user["user_id"], "from": current, "to": new, "at": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "status": new}
 
 # ---------- AI-assist RFQ ----------
 class AIAssistReq(BaseModel):
