@@ -544,6 +544,14 @@ class QuotationCreate(BaseModel):
 async def submit_quotation(body: QuotationCreate, user: dict = Depends(require_user)):
     if user.get("role") not in ("exporter", "admin"):
         raise HTTPException(403, "Forbidden")
+    if user.get("role") == "exporter":
+        # An exporter may only quote an RFQ it was invited to. 404 rather than 403 so a guessed
+        # RFQ id is not confirmed to exist.
+        cid = company_scope(user)
+        inv = await db.exporter_invitations.find_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": cid}) if cid else None
+        if not inv:
+            raise HTTPException(404, "Not found")
     qid = f"quo_{uuid.uuid4().hex[:10]}"
     doc = {"quotation_id": qid, "exporter_company_id": user.get("company_id"), **body.model_dump(), "status": "submitted", "created_at": datetime.now(timezone.utc).isoformat()}
     await db.exporter_quotations.insert_one(doc)
