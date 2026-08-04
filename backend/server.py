@@ -833,6 +833,168 @@ async def replace_milestones(order_id: str, body: MilestoneUpdate, user: dict = 
     return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
 
 
+# ---------- Production specification ----------
+# The specification is the contract production is judged against. It is frozen when the buyer
+# accepts a quotation, and never edited afterwards: a change is a new version that the buyer
+# has to approve, so an inspection result always refers to something both sides signed off.
+
+class SpecRow(BaseModel):
+    name: str
+    target: str = ""
+    tolerance: str = ""
+    critical: bool = False
+
+class SpecificationCreate(BaseModel):
+    rfq_id: str
+    rows: Optional[List[SpecRow]] = None      # defaults to the RFQ's category fields
+    sample_reference: Optional[str] = None    # file_id of the approved sample
+
+def spec_rows_from_rfq(rfq: dict) -> List[dict]:
+    """Seed rows from the RFQ's category-specific answers — the same vocabulary the buyer
+    filled in, so nothing is renamed between requirement and verification."""
+    fields = rfq.get("category_fields") or {}
+    return [{"name": k, "target": str(v), "tolerance": "", "critical": False}
+            for k, v in fields.items() if str(v or "").strip()]
+
+def next_spec_version(previous: Optional[dict]) -> str:
+    if not previous:
+        return "1.0"
+    major, _, minor = (previous.get("version") or "1.0").partition(".")
+    return f"{major}.{int(minor or 0) + 1}"
+
+async def latest_locked_spec(rfq_id: str) -> Optional[dict]:
+    return await db.specifications.find_one(
+        {"rfq_id": rfq_id, "status": "locked"}, {"_id": 0}, sort=[("created_at", -1)])
+
+async def spec_visible_to(user: dict, spec: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    cid = company_scope(user)
+    if not cid:
+        return False
+    if user.get("role") == "buyer":
+        rfq = await db.rfqs.find_one({"rfq_id": spec["rfq_id"]}, {"_id": 0, "buyer_company_id": 1})
+        return bool(rfq and rfq.get("buyer_company_id") == cid)
+    if user.get("role") == "exporter":
+        return bool(await db.exporter_invitations.find_one(
+            {"rfq_id": spec["rfq_id"], "exporter_company_id": cid}))
+    return False
+
+@api.post("/admin/specifications")
+async def propose_specification(body: SpecificationCreate, user: dict = Depends(require_admin)):
+    """Draft the next version. It is not binding until the buyer approves it."""
+    rfq = await db.rfqs.find_one({"rfq_id": body.rfq_id}, {"_id": 0})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+    pending = await db.specifications.find_one(
+        {"rfq_id": body.rfq_id, "status": "proposed"}, {"_id": 0})
+    if pending:
+        raise HTTPException(409, f"Specification {pending['version']} is already awaiting buyer approval")
+    previous = await latest_locked_spec(body.rfq_id)
+    rows = [r.model_dump() for r in body.rows] if body.rows else (
+        previous.get("rows") if previous else spec_rows_from_rfq(rfq))
+    if not rows:
+        raise HTTPException(422, "A specification needs at least one row")
+    doc = {
+        "specification_id": f"spec_{uuid.uuid4().hex[:10]}",
+        "rfq_id": body.rfq_id, "order_id": None,
+        "version": next_spec_version(previous),
+        "rows": rows,
+        "sample_reference": body.sample_reference or (previous or {}).get("sample_reference"),
+        "status": "proposed", "supersedes": (previous or {}).get("specification_id"),
+        "locked_at": None, "locked_by": None,
+        "created_by": user["user_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.specifications.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+class SpecificationUpdate(BaseModel):
+    rows: Optional[List[SpecRow]] = None
+    sample_reference: Optional[str] = None
+
+@api.patch("/admin/specifications/{specification_id}")
+async def update_specification(specification_id: str, body: SpecificationUpdate,
+                               user: dict = Depends(require_admin)):
+    """Editable only while proposed. A locked specification is never modified in place — that
+    is the whole point of locking it — so changing one means proposing the next version."""
+    spec = await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+    if not spec:
+        raise HTTPException(404, "Not found")
+    if spec["status"] != "proposed":
+        raise HTTPException(409, f"Specification {spec['version']} is {spec['status']} and cannot be edited; "
+                                 f"propose a new version instead")
+    patch: Dict[str, Any] = {}
+    if body.rows is not None:
+        if not body.rows:
+            raise HTTPException(422, "A specification needs at least one row")
+        patch["rows"] = [r.model_dump() for r in body.rows]
+    if body.sample_reference is not None:
+        patch["sample_reference"] = body.sample_reference
+    if patch:
+        await db.specifications.update_one({"specification_id": specification_id}, {"$set": patch})
+    return await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+
+@api.post("/specifications/{specification_id}/approve")
+async def approve_specification(specification_id: str, user: dict = Depends(require_user)):
+    """Buyer approval is what locks a specification. Admin may counter-sign for an offline buyer."""
+    spec = await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+    if not spec or not await spec_visible_to(user, spec) or user.get("role") == "exporter":
+        raise HTTPException(404, "Not found")
+    if spec["status"] != "proposed":
+        raise HTTPException(409, f"Specification is {spec['status']}, not awaiting approval")
+    now = datetime.now(timezone.utc).isoformat()
+    if spec.get("supersedes"):
+        await db.specifications.update_one({"specification_id": spec["supersedes"]},
+                                           {"$set": {"status": "superseded", "superseded_by": specification_id}})
+    await db.specifications.update_one({"specification_id": specification_id}, {"$set": {
+        "status": "locked", "locked_at": now,
+        "locked_by": company_scope(user) or user["user_id"],
+    }})
+    await db.activity_logs.insert_one({"kind": "specification_locked", "rfq_id": spec["rfq_id"],
+                                       "specification_id": specification_id, "version": spec["version"],
+                                       "by": user["user_id"], "at": now})
+    return await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+
+@api.get("/specifications")
+async def list_specifications(rfq_id: Optional[str] = None, order_id: Optional[str] = None,
+                              user: dict = Depends(require_user)):
+    if order_id and not rfq_id:
+        order = await db.orders.find_one({"order_id": order_id}, {"_id": 0, "rfq_id": 1})
+        if not order:
+            raise HTTPException(404, "Not found")
+        rfq_id = order["rfq_id"]
+    if not rfq_id:
+        raise HTTPException(422, "rfq_id or order_id is required")
+    docs = await db.specifications.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    if not docs:
+        return []
+    if not await spec_visible_to(user, docs[0]):
+        raise HTTPException(404, "Not found")
+    # A proposed version is an internal draft until the buyer has seen it in the approval step.
+    return docs
+
+# ---------- Buyer acceptance ----------
+@api.post("/buyer-quotations/{bqid}/accept")
+async def accept_buyer_quotation(bqid: str, user: dict = Depends(require_user)):
+    """Acceptance is the moment the requirement stops moving: it locks the specification."""
+    bq = await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
+    if not bq:
+        raise HTTPException(404, "Not found")
+    visible = await scope_buyer_quotations(user, [bq])
+    if not visible:
+        raise HTTPException(404, "Not found")
+    if bq.get("status") == "accepted":
+        return public_quotation(bq)
+    await db.buyer_quotations.update_one({"buyer_quotation_id": bqid}, {"$set": {
+        "status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_by": user["user_id"]}})
+    spec = await db.specifications.find_one({"rfq_id": bq["rfq_id"], "status": "proposed"}, {"_id": 0})
+    if spec:
+        await approve_specification(spec["specification_id"], user)
+    updated = await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
+    return public_quotation(updated)
+
 # ---------- Files ----------
 async def can_read_file(user: dict, rec: dict) -> bool:
     """Fail closed: a file with no recorded owner is readable only by its uploader and admin."""
