@@ -47,12 +47,14 @@ export default function AdminRfqWorkspace() {
   const [rfq, setRfq] = useState(null);
   const [quotes, setQuotes] = useState([]);
   const [bq, setBq] = useState(null);
-  const [tab, setTab] = useState("compare");
+  const [invites, setInvites] = useState([]);
+  const [tab, setTab] = useState("invite");
 
   const loadAll = async () => {
     const r = await api.get(`/rfqs/${id}`); setRfq(r.data);
     const q = await api.get(`/admin/quotations?rfq_id=${id}`); setQuotes(q.data);
     const b = await api.get(`/buyer-quotations?rfq_id=${id}`); setBq(b.data[0] || null);
+    const i = await api.get(`/admin/invitations?rfq_id=${id}`); setInvites(i.data);
   };
   useEffect(() => { if (user?.role === "admin") loadAll(); }, [id, user]);
 
@@ -68,20 +70,152 @@ export default function AdminRfqWorkspace() {
         <span className="mono text-[11px]" style={{ color: "var(--bronze)" }}>{rfq.rfq_number}</span>
       </div>
       <h1 className="text-[32px]" style={{ fontFamily: "Cormorant Garamond, serif" }}>{rfq.product_name}</h1>
-      <div className="text-[13px] mt-1" style={{ color: "var(--ink-2)" }}>{rfq.quantity} · {rfq.destination_country} · {rfq.payment_structure}</div>
+      <div className="text-[13px] mt-1" style={{ color: "var(--ink-2)" }}>
+        {[rfq.quantity, rfq.destination_country, rfq.payment_structure].filter(Boolean).join(" · ")}
+      </div>
 
       <div className="mt-8 flex gap-6 border-b" style={{ borderColor: "var(--border)" }}>
-        {[["compare","Comparison"], ["cost","Cost builder"], ["quote","Buyer quotation"], ["order","Create order"]].map(([k,l]) => (
+        {[["invite","Invitations"], ["compare","Comparison"], ["cost","Cost builder"], ["quote","Buyer quotation"], ["order","Create order"]].map(([k,l]) => (
           <button key={k} data-testid={`wk-tab-${k}`} onClick={()=>setTab(k)} className="pb-3 text-[13px]"
             style={{ borderBottom: tab===k?"2px solid var(--ink)":"2px solid transparent", color: tab===k?"var(--ink)":"var(--ink-2)", fontWeight: tab===k?600:400 }}>{l}</button>
         ))}
       </div>
 
+      {tab === "invite" && <Invitations rfqId={id} invites={invites} onChange={loadAll}/>}
       {tab === "compare" && <Compare rfqId={id} quotes={quotes} onChange={loadAll}/>}
       {tab === "cost" && <CostBuilder rfqId={id} quotes={quotes} bq={bq} onSaved={loadAll}/>}
       {tab === "quote" && <BuyerQuote bq={bq} onSaved={loadAll} rfqId={id}/>}
       {tab === "order" && <OrderCreator rfqId={id} quotes={quotes} bq={bq} onCreated={(oid) => nav(`/dashboard/order/${oid}`)}/>}
     </DashboardLayout>
+  );
+}
+
+const INVITE_STAGES = ["invited", "viewed", "quoted", "declined"];
+
+function Invitations({ rfqId, invites, onChange }) {
+  const [exporters, setExporters] = useState([]);
+  const [perf, setPerf] = useState({});
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/admin/companies?kind=exporter").then(r => setExporters(r.data)).catch(()=>{});
+    api.get("/admin/exporter-performance").then(r => {
+      setPerf(Object.fromEntries(r.data.map(p => [p.exporter_company_id, p])));
+    }).catch(()=>{});
+  }, []);
+
+  const invited = new Map(invites.map(i => [i.exporter_company_id, i]));
+  // Exporters with a verified track record first — the point of keeping run records is that
+  // the next match is better than the last.
+  const ranked = [...exporters].sort((a, b) => {
+    const pa = perf[a.company_id], pb = perf[b.company_id];
+    if (!pa && !pb) return 0;
+    if (!pa) return 1;
+    if (!pb) return -1;
+    return (pb.conformance_pct ?? 0) - (pa.conformance_pct ?? 0);
+  });
+
+  const invite = async (payload, label) => {
+    setBusy(true);
+    try {
+      await api.post("/admin/invitations", { rfq_id: rfqId, ...payload });
+      toast.success(`Invitation sent to ${label}`);
+      onChange();
+    } catch (e) { toast.error(e.response?.data?.detail || "Invitation failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-8 grid md:grid-cols-3 gap-8">
+      <div className="md:col-span-2">
+        <div className="n-label mb-3">Exporters</div>
+        <div className="n-card overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead><tr className="mono text-[10px]" style={{ color: "var(--muted)" }}>
+              <th className="text-left px-4 py-3">Company</th>
+              <th className="text-left px-4">Category</th>
+              <th className="text-right px-4">Conformance</th>
+              <th className="text-right px-4">On time</th>
+              <th className="text-right px-4">Runs</th>
+              <th className="text-right px-4">State</th>
+            </tr></thead>
+            <tbody>{ranked.map(c => {
+              const inv = invited.get(c.company_id);
+              const p = perf[c.company_id];
+              return (
+                <tr key={c.company_id} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <td className="px-4 py-3">
+                    {c.name}
+                    <div className="mono text-[10px]" style={{ color: "var(--muted)" }}>{c.city || "—"}</div>
+                  </td>
+                  <td className="px-4">{c.main_category || "—"}</td>
+                  <td className="text-right px-4 mono">{p ? `${p.conformance_pct.toFixed(0)}%` : "—"}</td>
+                  <td className="text-right px-4 mono">{p ? `${p.on_time_pct.toFixed(0)}%` : "—"}</td>
+                  <td className="text-right px-4 mono">{p ? p.runs : "—"}</td>
+                  <td className="text-right px-4 py-3">
+                    {inv
+                      ? <span className="mono text-[11px]" style={{ color: inv.status === "quoted" ? "var(--success)" : inv.status === "declined" ? "var(--muted)" : "var(--bronze)" }}>{inv.status.toUpperCase()}</span>
+                      : <button data-testid={`inv-add-${c.company_id}`} disabled={busy}
+                          onClick={() => invite({ exporter_company_id: c.company_id }, c.name)}
+                          className="mono text-[11px] underline">Invite →</button>}
+                  </td>
+                </tr>
+              );
+            })}{!ranked.length && <tr><td colSpan={6} className="px-4 py-6 text-[13px]" style={{color:"var(--muted)"}}>No exporter companies yet — invite one by email.</td></tr>}</tbody>
+          </table>
+        </div>
+
+        <div className="mt-8">
+          <div className="n-label mb-3">Invitation state</div>
+          {invites.length === 0 ? (
+            <div className="text-[13px]" style={{ color: "var(--muted)" }}>Nobody invited yet.</div>
+          ) : (
+            <ul className="n-card divide-y" style={{ borderColor: "var(--border)" }}>
+              {invites.map(i => (
+                <li key={i.invitation_id} className="px-4 py-3 flex items-center justify-between gap-4 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
+                  <div className="text-[13px]">
+                    {i.company_name || i.exporter_company_id || i.invited_email}
+                    {i.invited_email && <div className="mono text-[10px]" style={{ color: "var(--muted)" }}>{i.invited_email}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {INVITE_STAGES.filter(s => s !== "declined" || i.status === "declined").map(s => {
+                      const reached = i.status === "declined"
+                        ? s === "declined" || s === "invited"
+                        : INVITE_STAGES.indexOf(s) <= INVITE_STAGES.indexOf(i.status);
+                      return (
+                        <span key={s} className="mono text-[10px] uppercase tracking-wider px-2 py-1"
+                          style={{
+                            border: "1px solid var(--border)",
+                            background: reached ? "var(--bronze-light)" : "transparent",
+                            color: reached ? "var(--bronze)" : "var(--muted)",
+                          }}>{s}</span>
+                      );
+                    })}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="n-card p-6" style={{ background: "var(--subtle)" }}>
+        <div className="n-label mb-3">Invite by email</div>
+        <p className="text-[12px] mb-4" style={{ color: "var(--ink-2)" }}>
+          For an exporter not on the platform yet. They receive the requirement without the buyer's
+          identity, and the invitation attaches to their account when they sign up.
+        </p>
+        <label className="block"><div className="n-label mb-1">Company name</div>
+          <input data-testid="inv-email-company" className="n-input" value={company} onChange={e=>setCompany(e.target.value)}/></label>
+        <label className="block mt-3"><div className="n-label mb-1">Work email</div>
+          <input data-testid="inv-email-address" type="email" className="n-input" value={email} onChange={e=>setEmail(e.target.value)}/></label>
+        <button data-testid="inv-email-send" disabled={busy || !email}
+          onClick={() => { invite({ email, company_name: company }, email); setEmail(""); setCompany(""); }}
+          className="n-btn-primary mt-5 w-full justify-center">Send invitation</button>
+      </div>
+    </div>
   );
 }
 
