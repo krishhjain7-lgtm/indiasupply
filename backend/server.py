@@ -1174,8 +1174,11 @@ async def write_production_run(order: dict, by: str) -> Optional[dict]:
     completed_at = datetime.now(timezone.utc)
     created_at = order.get("created_at")
     try:
-        lead_time_days = (completed_at - datetime.fromisoformat(created_at)).days if created_at else None
-    except ValueError:
+        started = created_at if isinstance(created_at, datetime) else datetime.fromisoformat(created_at)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        lead_time_days = (completed_at - started).days
+    except (TypeError, ValueError):
         lead_time_days = None
     due_dates = [m.get("due_date") for m in (order.get("milestones") or []) if m.get("due_date")]
     on_time = None
