@@ -113,6 +113,61 @@ async def require_admin(request: Request) -> dict:
         raise HTTPException(status_code=403, detail="Admin only")
     return u
 
+# ---------- Tenancy & serialisation ----------
+# Buyer quotations carry the internal cost build-up on the same document the buyer receives,
+# so stripping is structural rather than per-endpoint: every non-admin response goes through
+# public_quotation(). A new endpoint cannot leak margin by forgetting to pop() the fields.
+INTERNAL_FIELDS = ("internal_costs", "internal_notes")
+
+# Draft quotations are internal. A buyer only sees one once it has been published to them.
+BUYER_VISIBLE_QUOTATION_STATUSES = ("published", "sent", "accepted")
+
+def public_quotation(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k not in INTERNAL_FIELDS}
+
+def company_scope(user: dict) -> Optional[str]:
+    """A user's tenant key, or None when they have no company yet.
+
+    None must never be used as a query value: anonymous public RFQs are stored with
+    buyer_company_id None, so {"buyer_company_id": None} would match other people's records.
+    Callers treat None as "sees nothing".
+    """
+    return user.get("company_id") or None
+
+async def buyer_rfq_ids(user: dict) -> List[str]:
+    cid = company_scope(user)
+    if not cid:
+        return []
+    cur = db.rfqs.find({"buyer_company_id": cid}, {"_id": 0, "rfq_id": 1})
+    return [r["rfq_id"] async for r in cur]
+
+async def exporter_invited_rfq_ids(user: dict) -> List[str]:
+    cid = company_scope(user)
+    if not cid:
+        return []
+    cur = db.exporter_invitations.find({"exporter_company_id": cid}, {"_id": 0, "rfq_id": 1})
+    return [i["rfq_id"] async for i in cur]
+
+# An invited exporter sees the requirement but never the buyer's identity — that is what
+# keeps the transaction on the platform.
+EXPORTER_HIDDEN_RFQ_FIELDS = ("contact_name", "contact_email", "contact_company", "contact_country",
+                              "buyer_user_id", "buyer_company_id")
+
+def exporter_rfq(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k not in EXPORTER_HIDDEN_RFQ_FIELDS}
+
+async def scope_buyer_quotations(user: dict, docs: List[dict]) -> List[dict]:
+    """The only place that decides what a caller may see of buyer_quotations."""
+    if user.get("role") == "admin":
+        return docs
+    if user.get("role") != "buyer":
+        return []
+    allowed = set(await buyer_rfq_ids(user))
+    return [
+        public_quotation(d) for d in docs
+        if d.get("rfq_id") in allowed and d.get("status") in BUYER_VISIBLE_QUOTATION_STATUSES
+    ]
+
 # ---------- Email ----------
 async def send_email(to: str, subject: str, html: str, reply_to: Optional[str] = None):
     if not EMERGENT_EMAIL_KEY:
@@ -329,21 +384,20 @@ async def create_rfq(body: RFQCreate, request: Request):
 async def list_rfqs(request: Request, user: dict = Depends(require_user)):
     q: Dict[str, Any] = {}
     if user.get("role") == "buyer":
-        q["buyer_company_id"] = user.get("company_id")
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["buyer_company_id"] = cid
     elif user.get("role") == "exporter":
-        # Only RFQs where exporter has been invited
-        inv = db.exporter_invitations.find({"exporter_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})
-        ids = [i["rfq_id"] async for i in inv]
+        # Only RFQs where this exporter has been invited
+        ids = await exporter_invited_rfq_ids(user)
         if not ids:
             return []
         q["rfq_id"] = {"$in": ids}
     # admin sees all
     items = await db.rfqs.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # scrub buyer contact info for exporters
     if user.get("role") == "exporter":
-        for r in items:
-            for k in ("contact_name", "contact_email", "buyer_user_id", "buyer_company_id"):
-                r.pop(k, None)
+        items = [exporter_rfq(r) for r in items]
     return items
 
 @api.get("/rfqs/{rfq_id}")
@@ -351,14 +405,16 @@ async def get_rfq(rfq_id: str, user: dict = Depends(require_user)):
     rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0})
     if not rfq:
         raise HTTPException(404, "Not found")
-    if user.get("role") == "buyer" and rfq.get("buyer_company_id") != user.get("company_id"):
-        raise HTTPException(403, "Forbidden")
+    if user.get("role") == "buyer":
+        cid = company_scope(user)
+        if not cid or rfq.get("buyer_company_id") != cid:
+            raise HTTPException(403, "Forbidden")
     if user.get("role") == "exporter":
-        inv = await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": user.get("company_id")})
+        cid = company_scope(user)
+        inv = await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": cid}) if cid else None
         if not inv:
             raise HTTPException(403, "Forbidden")
-        for k in ("contact_name", "contact_email", "buyer_user_id", "buyer_company_id"):
-            rfq.pop(k, None)
+        rfq = exporter_rfq(rfq)
     return rfq
 
 @api.patch("/rfqs/{rfq_id}/status")
@@ -488,15 +544,23 @@ async def submit_quotation(body: QuotationCreate, user: dict = Depends(require_u
 
 @api.get("/quotations")
 async def list_quotations(rfq_id: Optional[str] = None, user: dict = Depends(require_user)):
-    q = {}
+    """Raw exporter quotations. Admin sees all; an exporter sees only its own.
+
+    Buyers have no branch here by design — they read published quotations from
+    /api/buyer-quotations, which is the single path carrying buyer isolation.
+    """
+    if user.get("role") == "buyer":
+        raise HTTPException(403, "Buyers read published quotations from /api/buyer-quotations")
+    q: Dict[str, Any] = {}
     if rfq_id:
         q["rfq_id"] = rfq_id
     if user.get("role") == "exporter":
-        q["exporter_company_id"] = user.get("company_id")
-    elif user.get("role") == "buyer":
-        # Buyers see only admin-approved buyer_quotations, not raw exporter quotes
-        return await db.buyer_quotations.find({"rfq_id": rfq_id} if rfq_id else {}, {"_id": 0}).to_list(500)
-    return await db.exporter_quotations.find(q, {"_id": 0}).to_list(500)
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["exporter_company_id"] = cid
+    docs = await db.exporter_quotations.find(q, {"_id": 0}).to_list(500)
+    return docs if user.get("role") == "admin" else [public_quotation(d) for d in docs]
 
 class BuyerQuotationCreate(BaseModel):
     rfq_id: str
@@ -534,13 +598,7 @@ async def list_buyer_quotations(rfq_id: Optional[str] = None, user: dict = Depen
     if rfq_id:
         q["rfq_id"] = rfq_id
     docs = await db.buyer_quotations.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
-    if user.get("role") == "buyer":
-        # Filter by RFQ ownership + status published/sent + strip internal fields
-        allowed_ids = {r["rfq_id"] async for r in db.rfqs.find({"buyer_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})}
-        docs = [d for d in docs if d.get("rfq_id") in allowed_ids and d.get("status") in ("published", "sent", "accepted")]
-        for d in docs:
-            d.pop("internal_costs", None); d.pop("internal_notes", None)
-    return docs
+    return await scope_buyer_quotations(user, docs)
 
 # Admin-created exporter quotations (for comparison mock-ups when the exporter is not on the platform yet)
 class AdminQuotationCreate(QuotationCreate):
@@ -587,11 +645,12 @@ async def create_order(body: OrderCreate, user: dict = Depends(require_admin)):
 async def list_orders(user: dict = Depends(require_user)):
     q: Dict[str, Any] = {}
     if user.get("role") == "buyer":
-        rfqs = db.rfqs.find({"buyer_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})
-        ids = [r["rfq_id"] async for r in rfqs]
-        q["rfq_id"] = {"$in": ids}
+        q["rfq_id"] = {"$in": await buyer_rfq_ids(user)}
     elif user.get("role") == "exporter":
-        q["exporter_company_id"] = user.get("company_id")
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["exporter_company_id"] = cid
     return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api.get("/orders/{order_id}")
@@ -600,10 +659,11 @@ async def get_order(order_id: str, user: dict = Depends(require_user)):
     if not doc:
         raise HTTPException(404)
     if user.get("role") == "buyer":
+        cid = company_scope(user)
         rfq = await db.rfqs.find_one({"rfq_id": doc.get("rfq_id")}, {"_id": 0, "buyer_company_id": 1})
-        if not rfq or rfq.get("buyer_company_id") != user.get("company_id"):
+        if not cid or not rfq or rfq.get("buyer_company_id") != cid:
             raise HTTPException(403)
-    elif user.get("role") == "exporter" and doc.get("exporter_company_id") != user.get("company_id"):
+    elif user.get("role") == "exporter" and doc.get("exporter_company_id") != company_scope(user):
         raise HTTPException(403)
     return doc
 
