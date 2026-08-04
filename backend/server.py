@@ -856,6 +856,8 @@ async def update_order(order_id: str, body: dict, user: dict = Depends(require_a
             raise HTTPException(422, f"Illegal transition {current} -> {new_status}")
     await db.orders.update_one({"order_id": order_id}, {"$set": body})
     await db.activity_logs.insert_one({"kind": "order_update", "order_id": order_id, "by": user["user_id"], "fields": list(body.keys()), "at": datetime.now(timezone.utc).isoformat()})
+    if new_status in ORDER_COMPLETION_STATES:
+        await write_production_run(await order_or_404(order_id), user["user_id"])
     return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
 
 @api.patch("/admin/orders/{order_id}/milestones")
@@ -1145,6 +1147,97 @@ async def list_inspections(order_id: str, user: dict = Depends(require_user)):
     elif user.get("role") == "exporter" and order.get("exporter_company_id") != company_scope(user):
         raise HTTPException(404, "Not found")
     return await db.inspections.find({"order_id": order_id}, {"_id": 0}).sort("inspected_at", 1).to_list(200)
+
+# ---------- Factory performance ----------
+# Every number here is derived from production runs and the inspections behind them. Nothing on
+# an exporter profile is typed in by hand.
+
+def _measurement_rows(inspections: List[dict], first_pass_only: bool = True):
+    for insp in inspections:
+        if first_pass_only and insp.get("round", 1) != 1:
+            continue
+        for m in insp.get("measurements", []):
+            yield m
+
+def conformance_from_inspections(inspections: List[dict]) -> Optional[float]:
+    rows = list(_measurement_rows(inspections))
+    if not rows:
+        return None
+    passed = sum(1 for m in rows if m.get("status") == "pass")
+    return round(passed / len(rows) * 100, 1)
+
+async def write_production_run(order: dict, by: str) -> Optional[dict]:
+    """Called once when an order completes. Idempotent."""
+    if await db.production_runs.find_one({"order_id": order["order_id"]}):
+        return None
+    inspections = await db.inspections.find({"order_id": order["order_id"]}, {"_id": 0}).to_list(200)
+    completed_at = datetime.now(timezone.utc)
+    created_at = order.get("created_at")
+    try:
+        lead_time_days = (completed_at - datetime.fromisoformat(created_at)).days if created_at else None
+    except ValueError:
+        lead_time_days = None
+    due_dates = [m.get("due_date") for m in (order.get("milestones") or []) if m.get("due_date")]
+    on_time = None
+    if due_dates:
+        try:
+            on_time = completed_at.date().isoformat() <= max(due_dates)
+        except (TypeError, ValueError):
+            on_time = None
+    run = {
+        "run_id": f"run_{uuid.uuid4().hex[:10]}",
+        "order_id": order["order_id"],
+        "exporter_company_id": order.get("exporter_company_id"),
+        "rfq_id": order.get("rfq_id"),
+        "conformance_pct": conformance_from_inspections(inspections),
+        "on_time": on_time,
+        "corrective_actions": sum(1 for i in inspections if i.get("corrective_action")),
+        "lead_time_days": lead_time_days,
+        "inspections": len(inspections),
+        "completed_at": completed_at.isoformat(),
+        "recorded_by": by,
+    }
+    await db.production_runs.insert_one(run)
+    run.pop("_id", None)
+    return run
+
+async def performance_profile(exporter_company_id: str) -> dict:
+    runs = await db.production_runs.find({"exporter_company_id": exporter_company_id}, {"_id": 0}).to_list(500)
+    scored = [r for r in runs if r.get("conformance_pct") is not None]
+    timed = [r for r in runs if r.get("on_time") is not None]
+    lead = [r["lead_time_days"] for r in runs if r.get("lead_time_days") is not None]
+
+    order_ids = [r["order_id"] for r in runs]
+    inspections = await db.inspections.find({"order_id": {"$in": order_ids}}, {"_id": 0}).to_list(1000) if order_ids else []
+    by_attribute: Dict[str, Dict[str, int]] = {}
+    for m in _measurement_rows(inspections):
+        bucket = by_attribute.setdefault(m.get("name", "unknown"), {"passed": 0, "total": 0})
+        bucket["total"] += 1
+        bucket["passed"] += 1 if m.get("status") == "pass" else 0
+
+    return {
+        "exporter_company_id": exporter_company_id,
+        "runs": len(runs),
+        "conformance_pct": round(sum(r["conformance_pct"] for r in scored) / len(scored), 1) if scored else 0.0,
+        "on_time_pct": round(sum(1 for r in timed if r["on_time"]) / len(timed) * 100, 1) if timed else 0.0,
+        "corrective_actions": sum(r.get("corrective_actions", 0) for r in runs),
+        "avg_lead_time_days": round(sum(lead) / len(lead)) if lead else None,
+        "attributes": [
+            {"name": name, "conformance_pct": round(v["passed"] / v["total"] * 100, 1), "measured": v["total"]}
+            for name, v in sorted(by_attribute.items())
+        ],
+        "basis": "Performance metrics are generated from verified production runs.",
+    }
+
+@api.get("/admin/exporter-performance")
+async def list_exporter_performance(user: dict = Depends(require_admin)):
+    ids = await db.production_runs.distinct("exporter_company_id")
+    profiles = [await performance_profile(cid) for cid in ids if cid]
+    return sorted(profiles, key=lambda p: (-p["conformance_pct"], -p["runs"]))
+
+@api.get("/admin/exporter-performance/{exporter_company_id}")
+async def get_exporter_performance(exporter_company_id: str, user: dict = Depends(require_admin)):
+    return await performance_profile(exporter_company_id)
 
 # ---------- Files ----------
 async def can_read_file(user: dict, rec: dict) -> bool:
