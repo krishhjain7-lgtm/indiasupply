@@ -15,6 +15,7 @@ import BuyerDashboard from "@/pages/BuyerDashboard";
 import ExporterDashboard from "@/pages/ExporterDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminRfqWorkspace from "@/pages/AdminRfqWorkspace";
+import ExporterPerformance from "@/pages/ExporterPerformance";
 import OrderDetail from "@/pages/OrderDetail";
 import { HowItWorks, ForBuyers, ForExporters, Jaipur, Privacy, Terms, RFQThanks, ExporterThanks, Login } from "@/pages/Static";
 
@@ -23,9 +24,30 @@ function DashboardRouter() {
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="n-label">Loading</div></div>;
   if (!user) return <Navigate to="/" />;
   if (!user.onboarded && user.role !== "admin") return <Navigate to="/onboarding" />;
+  // Every sidebar entry is a real, refreshable route. Sections a role has no data for are
+  // absent from both the route table and its sidebar — never present but dead.
   return (
     <Routes>
-      <Route index element={user.role === "admin" ? <AdminDashboard/> : user.role === "exporter" ? <ExporterDashboard/> : <BuyerDashboard/>}/>
+      {user.role === "admin" && <>
+        <Route index element={<AdminDashboard tab="overview"/>}/>
+        <Route path="rfqs" element={<AdminDashboard tab="rfqs"/>}/>
+        <Route path="orders" element={<AdminDashboard tab="orders"/>}/>
+        <Route path="companies" element={<AdminDashboard tab="companies"/>}/>
+        <Route path="performance" element={<ExporterPerformance/>}/>
+        <Route path="users" element={<AdminDashboard tab="users"/>}/>
+      </>}
+      {user.role === "exporter" && <>
+        <Route index element={<ExporterDashboard tab="overview"/>}/>
+        <Route path="invitations" element={<ExporterDashboard tab="invitations"/>}/>
+        <Route path="quotations" element={<ExporterDashboard tab="quotations"/>}/>
+        <Route path="orders" element={<ExporterDashboard tab="orders"/>}/>
+      </>}
+      {user.role === "buyer" && <>
+        <Route index element={<BuyerDashboard tab="overview"/>}/>
+        <Route path="rfqs" element={<BuyerDashboard tab="rfqs"/>}/>
+        <Route path="quotations" element={<BuyerDashboard tab="quotations"/>}/>
+        <Route path="orders" element={<BuyerDashboard tab="orders"/>}/>
+      </>}
       <Route path="rfq/:id" element={<AdminRfqWorkspace/>}/>
       <Route path="order/:id" element={<OrderDetail/>}/>
       <Route path="*" element={<Navigate to="/dashboard" />}/>

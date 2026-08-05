@@ -6,16 +6,18 @@ AI-assisted RFQ improvement (Claude Sonnet 4.5 via Emergent LLM key),
 Resend transactional email, Emergent managed Object Storage for files,
 demo seeding for YC review.
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Depends, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, Form, Depends
 from fastapi.responses import Response as FastResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-import os, uuid, logging, json, httpx, requests, asyncio
+import os, uuid, logging, json, httpx, requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -32,10 +34,25 @@ APP_NAME = os.environ.get("APP_NAME", "norvian")
 OWNER_EMAIL = os.environ.get("OWNER_EMAIL", "krishhjain7@gmail.com").lower()
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 
+# Browsers reject Access-Control-Allow-Origin: "*" on credentialed requests, so a wildcard here
+# means session cookies silently stop working in production. Refuse to boot instead of half-working.
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+if not CORS_ORIGINS or "*" in CORS_ORIGINS:
+    raise RuntimeError(
+        "CORS_ORIGINS must be set to an explicit comma-separated origin list "
+        "(e.g. CORS_ORIGINS=https://app.norvian.ai). A wildcard is invalid with "
+        "allow_credentials=True and breaks cookie authentication."
+    )
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("norvian")
 
-app = FastAPI(title="Norvian API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup()
+    yield
+
+app = FastAPI(title="Norvian API", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 # ---------- Storage ----------
@@ -102,6 +119,61 @@ async def require_admin(request: Request) -> dict:
     if u.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return u
+
+# ---------- Tenancy & serialisation ----------
+# Buyer quotations carry the internal cost build-up on the same document the buyer receives,
+# so stripping is structural rather than per-endpoint: every non-admin response goes through
+# public_quotation(). A new endpoint cannot leak margin by forgetting to pop() the fields.
+INTERNAL_FIELDS = ("internal_costs", "internal_notes")
+
+# Draft quotations are internal. A buyer only sees one once it has been published to them.
+BUYER_VISIBLE_QUOTATION_STATUSES = ("published", "sent", "accepted")
+
+def public_quotation(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k not in INTERNAL_FIELDS}
+
+def company_scope(user: dict) -> Optional[str]:
+    """A user's tenant key, or None when they have no company yet.
+
+    None must never be used as a query value: anonymous public RFQs are stored with
+    buyer_company_id None, so {"buyer_company_id": None} would match other people's records.
+    Callers treat None as "sees nothing".
+    """
+    return user.get("company_id") or None
+
+async def buyer_rfq_ids(user: dict) -> List[str]:
+    cid = company_scope(user)
+    if not cid:
+        return []
+    cur = db.rfqs.find({"buyer_company_id": cid}, {"_id": 0, "rfq_id": 1})
+    return [r["rfq_id"] async for r in cur]
+
+async def exporter_invited_rfq_ids(user: dict) -> List[str]:
+    cid = company_scope(user)
+    if not cid:
+        return []
+    cur = db.exporter_invitations.find({"exporter_company_id": cid}, {"_id": 0, "rfq_id": 1})
+    return [i["rfq_id"] async for i in cur]
+
+# An invited exporter sees the requirement but never the buyer's identity — that is what
+# keeps the transaction on the platform.
+EXPORTER_HIDDEN_RFQ_FIELDS = ("contact_name", "contact_email", "contact_company", "contact_country",
+                              "buyer_user_id", "buyer_company_id")
+
+def exporter_rfq(doc: dict) -> dict:
+    return {k: v for k, v in doc.items() if k not in EXPORTER_HIDDEN_RFQ_FIELDS}
+
+async def scope_buyer_quotations(user: dict, docs: List[dict]) -> List[dict]:
+    """The only place that decides what a caller may see of buyer_quotations."""
+    if user.get("role") == "admin":
+        return docs
+    if user.get("role") != "buyer":
+        return []
+    allowed = set(await buyer_rfq_ids(user))
+    return [
+        public_quotation(d) for d in docs
+        if d.get("rfq_id") in allowed and d.get("status") in BUYER_VISIBLE_QUOTATION_STATUSES
+    ]
 
 # ---------- Email ----------
 async def send_email(to: str, subject: str, html: str, reply_to: Optional[str] = None):
@@ -170,17 +242,6 @@ async def logout(request: Request, response: Response):
     response.delete_cookie("session_token", path="/")
     return {"ok": True}
 
-@api.post("/auth/set-role")
-async def set_role(body: dict, user: dict = Depends(require_user)):
-    role = body.get("role")
-    if role not in ("buyer", "exporter"):
-        raise HTTPException(400, "invalid role")
-    # Do not downgrade admin
-    if user.get("role") == "admin":
-        return user
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"role": role}})
-    return await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
-
 # ---------- Onboarding ----------
 class BuyerOnboardingReq(BaseModel):
     full_name: str
@@ -244,6 +305,12 @@ async def onboard_exporter(body: ExporterOnboardingReq, user: dict = Depends(req
         "company_id": company_id, "full_name": body.contact_name, "work_email": body.work_email,
         "onboarded": True,
     }})
+    # Claim invitations addressed to this exporter by email before they had an account.
+    await db.exporter_invitations.update_many(
+        {"exporter_company_id": None,
+         "invited_email": {"$in": [body.work_email.lower(), (user.get("email") or "").lower()]}},
+        {"$set": {"exporter_company_id": company_id}},
+    )
     await send_email(body.work_email, "Norvian — Application Received",
         f"<p>Hi {body.contact_name},</p><p>Thanks for applying. Your profile has been received. We will contact you when we have a relevant buyer requirement.</p><p>— Norvian</p>")
     return await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
@@ -291,6 +358,35 @@ class RFQCreate(BaseModel):
 def next_rfq_number():
     return f"NRV-{datetime.now().strftime('%Y%m')}-{uuid.uuid4().hex[:5].upper()}"
 
+# ---------- RFQ status vocabulary ----------
+# The single definition of the status vocabulary and the legal moves between states. Served to
+# the dashboard at /api/meta/rfq-statuses so the UI cannot drift from what the API will accept.
+RFQ_STATUS_FLOW: Dict[str, List[str]] = {
+    "submitted":                ["needs_clarification", "under_review", "rejected"],
+    "needs_clarification":      ["under_review", "rejected"],
+    "under_review":             ["needs_clarification", "sent_for_quotation", "rejected"],
+    "sent_for_quotation":       ["quotations_received", "needs_clarification", "rejected"],
+    "quotations_received":      ["buyer_quotation_prepared", "sent_for_quotation", "rejected"],
+    "buyer_quotation_prepared": ["sample_requested", "awaiting_deposit", "quotations_received", "rejected"],
+    "sample_requested":         ["sample_in_progress", "rejected"],
+    "sample_in_progress":       ["sample_approved", "sample_requested", "rejected"],
+    "sample_approved":          ["awaiting_deposit", "rejected"],
+    "awaiting_deposit":         ["in_production", "disputed", "closed"],
+    "in_production":            ["quality_inspection", "disputed"],
+    "quality_inspection":       ["ready_to_ship", "in_production", "disputed"],
+    "ready_to_ship":            ["shipped", "disputed"],
+    "shipped":                  ["delivered", "disputed"],
+    "delivered":                ["closed", "disputed"],
+    "disputed":                 ["under_review", "closed"],
+    "closed":                   [],
+    "rejected":                 [],
+}
+RFQ_STATUSES = tuple(RFQ_STATUS_FLOW)
+
+@api.get("/meta/rfq-statuses")
+async def rfq_status_meta(user: dict = Depends(require_user)):
+    return {"statuses": list(RFQ_STATUSES), "transitions": RFQ_STATUS_FLOW}
+
 @api.post("/rfqs")
 async def create_rfq(body: RFQCreate, request: Request):
     user = await get_current_user(request)
@@ -305,6 +401,13 @@ async def create_rfq(body: RFQCreate, request: Request):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.rfqs.insert_one(doc)
+    # Attach uploaded references to the RFQ so invited exporters can read them (files are
+    # uploaded before the RFQ exists, so the link can only be made here).
+    if user and body.references:
+        await db.files.update_many(
+            {"file_id": {"$in": list(body.references)}, "user_id": user["user_id"]},
+            {"$set": {"rfq_id": rfq_id}},
+        )
     # Notify admin owner
     await send_email(OWNER_EMAIL, f"New RFQ {rfq_number}",
         f"<p>New RFQ received.</p><ul><li>Product: {body.product_name}</li><li>Category: {body.product_category}</li><li>Qty: {body.quantity}</li><li>Destination: {body.destination_country}</li></ul>")
@@ -319,21 +422,20 @@ async def create_rfq(body: RFQCreate, request: Request):
 async def list_rfqs(request: Request, user: dict = Depends(require_user)):
     q: Dict[str, Any] = {}
     if user.get("role") == "buyer":
-        q["buyer_company_id"] = user.get("company_id")
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["buyer_company_id"] = cid
     elif user.get("role") == "exporter":
-        # Only RFQs where exporter has been invited
-        inv = db.exporter_invitations.find({"exporter_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})
-        ids = [i["rfq_id"] async for i in inv]
+        # Only RFQs where this exporter has been invited
+        ids = await exporter_invited_rfq_ids(user)
         if not ids:
             return []
         q["rfq_id"] = {"$in": ids}
     # admin sees all
     items = await db.rfqs.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    # scrub buyer contact info for exporters
     if user.get("role") == "exporter":
-        for r in items:
-            for k in ("contact_name", "contact_email", "buyer_user_id", "buyer_company_id"):
-                r.pop(k, None)
+        items = [exporter_rfq(r) for r in items]
     return items
 
 @api.get("/rfqs/{rfq_id}")
@@ -341,21 +443,36 @@ async def get_rfq(rfq_id: str, user: dict = Depends(require_user)):
     rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0})
     if not rfq:
         raise HTTPException(404, "Not found")
-    if user.get("role") == "buyer" and rfq.get("buyer_company_id") != user.get("company_id"):
-        raise HTTPException(403, "Forbidden")
+    if user.get("role") == "buyer":
+        cid = company_scope(user)
+        if not cid or rfq.get("buyer_company_id") != cid:
+            raise HTTPException(403, "Forbidden")
     if user.get("role") == "exporter":
-        inv = await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": user.get("company_id")})
+        cid = company_scope(user)
+        inv = await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": cid}) if cid else None
         if not inv:
             raise HTTPException(403, "Forbidden")
-        for k in ("contact_name", "contact_email", "buyer_user_id", "buyer_company_id"):
-            rfq.pop(k, None)
+        if inv.get("status") == "invited":
+            await db.exporter_invitations.update_one(
+                {"invitation_id": inv["invitation_id"]},
+                {"$set": {"status": "viewed", "viewed_at": datetime.now(timezone.utc).isoformat()}})
+        rfq = exporter_rfq(rfq)
     return rfq
 
 @api.patch("/rfqs/{rfq_id}/status")
 async def update_rfq_status(rfq_id: str, body: dict, user: dict = Depends(require_admin)):
-    await db.rfqs.update_one({"rfq_id": rfq_id}, {"$set": {"status": body.get("status")}})
-    await db.activity_logs.insert_one({"kind": "rfq_status", "rfq_id": rfq_id, "by": user["user_id"], "to": body.get("status"), "at": datetime.now(timezone.utc).isoformat()})
-    return {"ok": True}
+    new = body.get("status")
+    if new not in RFQ_STATUS_FLOW:
+        raise HTTPException(422, f"Unknown status '{new}'")
+    rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0, "status": 1})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+    current = rfq.get("status") or "submitted"
+    if new != current and new not in RFQ_STATUS_FLOW.get(current, []):
+        raise HTTPException(422, f"Illegal transition {current} -> {new}")
+    await db.rfqs.update_one({"rfq_id": rfq_id}, {"$set": {"status": new}})
+    await db.activity_logs.insert_one({"kind": "rfq_status", "rfq_id": rfq_id, "by": user["user_id"], "from": current, "to": new, "at": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True, "status": new}
 
 # ---------- AI-assist RFQ ----------
 class AIAssistReq(BaseModel):
@@ -430,15 +547,100 @@ async def create_catalogue_product(body: CatalogueProduct, user: dict = Depends(
     return doc
 
 # ---------- Exporter Invitations & Quotations ----------
+INVITATION_STATUSES = ("invited", "viewed", "quoted", "declined")
+
 class InviteReq(BaseModel):
     rfq_id: str
-    exporter_company_id: str
+    # Either an exporter already on the platform, or an email address for one that is not.
+    exporter_company_id: Optional[str] = None
+    email: Optional[EmailStr] = None
+    company_name: Optional[str] = None
+
+async def invitation_email(rfq: dict, to: str, company_name: Optional[str] = None):
+    """The exporter is told what is being asked for — never who is asking."""
+    await send_email(
+        to,
+        f"Norvian — requirement {rfq.get('rfq_number')} ({rfq.get('product_category')})",
+        f"<p>Hello{(' ' + company_name) if company_name else ''},</p>"
+        f"<p>You have been invited to quote on a buyer requirement.</p>"
+        f"<ul><li>Reference: <strong>{rfq.get('rfq_number')}</strong></li>"
+        f"<li>Product: {rfq.get('product_name')}</li>"
+        f"<li>Quantity: {rfq.get('quantity')}</li>"
+        f"<li>Destination: {rfq.get('destination_country')}</li></ul>"
+        f"<p>Sign in to Norvian to see the full specification and submit a quotation.</p>"
+        f"<p>— Norvian</p>",
+    )
 
 @api.post("/admin/invitations")
 async def invite(body: InviteReq, user: dict = Depends(require_admin)):
+    if not body.exporter_company_id and not body.email:
+        raise HTTPException(422, "Provide an exporter company or an email address")
+    rfq = await db.rfqs.find_one({"rfq_id": body.rfq_id}, {"_id": 0})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+
+    company = None
+    if body.exporter_company_id:
+        company = await db.companies.find_one({"company_id": body.exporter_company_id}, {"_id": 0})
+        if not company:
+            raise HTTPException(404, "Not found")
+        existing = await db.exporter_invitations.find_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": body.exporter_company_id}, {"_id": 0})
+        if existing:
+            return existing
+
+    invited_email = body.email or (company or {}).get("work_email")
+    if not invited_email and company:
+        owner = await db.users.find_one({"user_id": company.get("owner_user_id")}, {"_id": 0})
+        invited_email = (owner or {}).get("work_email") or (owner or {}).get("email")
+
     inv_id = f"inv_{uuid.uuid4().hex[:10]}"
-    await db.exporter_invitations.insert_one({"invitation_id": inv_id, "rfq_id": body.rfq_id, "exporter_company_id": body.exporter_company_id, "status": "invited", "created_at": datetime.now(timezone.utc).isoformat()})
-    return {"invitation_id": inv_id}
+    doc = {
+        "invitation_id": inv_id, "rfq_id": body.rfq_id,
+        "exporter_company_id": body.exporter_company_id,
+        "invited_email": (invited_email or "").lower() or None,
+        "company_name": body.company_name or (company or {}).get("name"),
+        "status": "invited", "invited_by": user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.exporter_invitations.insert_one(doc)
+    doc.pop("_id", None)
+    if invited_email:
+        await invitation_email(rfq, invited_email, doc["company_name"])
+    await db.activity_logs.insert_one({"kind": "exporter_invited", "rfq_id": body.rfq_id,
+                                       "invitation_id": inv_id, "by": user["user_id"],
+                                       "at": datetime.now(timezone.utc).isoformat()})
+    return doc
+
+@api.get("/admin/invitations")
+async def admin_list_invitations(rfq_id: str, user: dict = Depends(require_admin)):
+    return await db.exporter_invitations.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+@api.get("/invitations")
+async def list_invitations(user: dict = Depends(require_user)):
+    """An exporter's own invitations, each with the requirement attached and the buyer scrubbed."""
+    if user.get("role") != "exporter":
+        raise HTTPException(403, "Exporters only")
+    cid = company_scope(user)
+    if not cid:
+        return []
+    invs = await db.exporter_invitations.find({"exporter_company_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    out = []
+    for inv in invs:
+        rfq = await db.rfqs.find_one({"rfq_id": inv["rfq_id"]}, {"_id": 0})
+        out.append({**inv, "rfq": exporter_rfq(rfq) if rfq else None})
+    return out
+
+@api.post("/invitations/{invitation_id}/decline")
+async def decline_invitation(invitation_id: str, user: dict = Depends(require_user)):
+    cid = company_scope(user)
+    inv = await db.exporter_invitations.find_one(
+        {"invitation_id": invitation_id, "exporter_company_id": cid}, {"_id": 0}) if cid else None
+    if not inv:
+        raise HTTPException(404, "Not found")
+    await db.exporter_invitations.update_one({"invitation_id": invitation_id}, {"$set": {
+        "status": "declined", "declined_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True, "status": "declined"}
 
 @api.get("/admin/companies")
 async def list_companies(kind: Optional[str] = None, user: dict = Depends(require_admin)):
@@ -470,23 +672,43 @@ class QuotationCreate(BaseModel):
 async def submit_quotation(body: QuotationCreate, user: dict = Depends(require_user)):
     if user.get("role") not in ("exporter", "admin"):
         raise HTTPException(403, "Forbidden")
+    if user.get("role") == "exporter":
+        # An exporter may only quote an RFQ it was invited to. 404 rather than 403 so a guessed
+        # RFQ id is not confirmed to exist.
+        cid = company_scope(user)
+        inv = await db.exporter_invitations.find_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": cid}) if cid else None
+        if not inv:
+            raise HTTPException(404, "Not found")
     qid = f"quo_{uuid.uuid4().hex[:10]}"
     doc = {"quotation_id": qid, "exporter_company_id": user.get("company_id"), **body.model_dump(), "status": "submitted", "created_at": datetime.now(timezone.utc).isoformat()}
     await db.exporter_quotations.insert_one(doc)
     doc.pop("_id", None)
+    if user.get("role") == "exporter":
+        await db.exporter_invitations.update_one(
+            {"rfq_id": body.rfq_id, "exporter_company_id": company_scope(user)},
+            {"$set": {"status": "quoted", "quoted_at": datetime.now(timezone.utc).isoformat()}})
     return doc
 
 @api.get("/quotations")
 async def list_quotations(rfq_id: Optional[str] = None, user: dict = Depends(require_user)):
-    q = {}
+    """Raw exporter quotations. Admin sees all; an exporter sees only its own.
+
+    Buyers have no branch here by design — they read published quotations from
+    /api/buyer-quotations, which is the single path carrying buyer isolation.
+    """
+    if user.get("role") == "buyer":
+        raise HTTPException(403, "Buyers read published quotations from /api/buyer-quotations")
+    q: Dict[str, Any] = {}
     if rfq_id:
         q["rfq_id"] = rfq_id
     if user.get("role") == "exporter":
-        q["exporter_company_id"] = user.get("company_id")
-    elif user.get("role") == "buyer":
-        # Buyers see only admin-approved buyer_quotations, not raw exporter quotes
-        return await db.buyer_quotations.find({"rfq_id": rfq_id} if rfq_id else {}, {"_id": 0}).to_list(500)
-    return await db.exporter_quotations.find(q, {"_id": 0}).to_list(500)
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["exporter_company_id"] = cid
+    docs = await db.exporter_quotations.find(q, {"_id": 0}).to_list(500)
+    return docs if user.get("role") == "admin" else [public_quotation(d) for d in docs]
 
 class BuyerQuotationCreate(BaseModel):
     rfq_id: str
@@ -524,13 +746,7 @@ async def list_buyer_quotations(rfq_id: Optional[str] = None, user: dict = Depen
     if rfq_id:
         q["rfq_id"] = rfq_id
     docs = await db.buyer_quotations.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
-    if user.get("role") == "buyer":
-        # Filter by RFQ ownership + status published/sent + strip internal fields
-        allowed_ids = {r["rfq_id"] async for r in db.rfqs.find({"buyer_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})}
-        docs = [d for d in docs if d.get("rfq_id") in allowed_ids and d.get("status") in ("published", "sent", "accepted")]
-        for d in docs:
-            d.pop("internal_costs", None); d.pop("internal_notes", None)
-    return docs
+    return await scope_buyer_quotations(user, docs)
 
 # Admin-created exporter quotations (for comparison mock-ups when the exporter is not on the platform yet)
 class AdminQuotationCreate(QuotationCreate):
@@ -550,6 +766,29 @@ async def admin_list_quotations(rfq_id: str, user: dict = Depends(require_admin)
     return await db.exporter_quotations.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
 
 # ---------- Orders & Milestones ----------
+# Order states. cleared_to_ship replaces a hand-set "ready to ship": an order reaches it only
+# by passing pre-shipment verification, and production_hold / shipment_blocked have no path to
+# shipping at all.
+ORDER_STATUS_FLOW: Dict[str, List[str]] = {
+    "awaiting_deposit":   ["in_production", "disputed", "closed"],
+    "in_production":      ["quality_inspection", "production_hold", "disputed"],
+    "production_hold":    ["in_production", "disputed", "closed"],
+    "quality_inspection": ["cleared_to_ship", "shipment_blocked", "production_hold", "in_production", "disputed"],
+    "shipment_blocked":   ["quality_inspection", "production_hold", "disputed"],
+    "cleared_to_ship":    ["shipped", "disputed"],
+    "shipped":            ["delivered", "disputed"],
+    "delivered":          ["closed", "disputed"],
+    "disputed":           ["in_production", "closed"],
+    "closed":             [],
+}
+ORDER_STATUSES = tuple(ORDER_STATUS_FLOW)
+ORDER_COMPLETION_STATES = ("delivered", "closed")
+
+@api.get("/meta/order-statuses")
+async def order_status_meta(user: dict = Depends(require_user)):
+    return {"statuses": list(ORDER_STATUSES), "transitions": ORDER_STATUS_FLOW,
+            "completion": list(ORDER_COMPLETION_STATES)}
+
 class OrderMilestone(BaseModel):
     label: str
     percent: float
@@ -577,11 +816,12 @@ async def create_order(body: OrderCreate, user: dict = Depends(require_admin)):
 async def list_orders(user: dict = Depends(require_user)):
     q: Dict[str, Any] = {}
     if user.get("role") == "buyer":
-        rfqs = db.rfqs.find({"buyer_company_id": user.get("company_id")}, {"_id": 0, "rfq_id": 1})
-        ids = [r["rfq_id"] async for r in rfqs]
-        q["rfq_id"] = {"$in": ids}
+        q["rfq_id"] = {"$in": await buyer_rfq_ids(user)}
     elif user.get("role") == "exporter":
-        q["exporter_company_id"] = user.get("company_id")
+        cid = company_scope(user)
+        if not cid:
+            return []
+        q["exporter_company_id"] = cid
     return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 @api.get("/orders/{order_id}")
@@ -590,10 +830,11 @@ async def get_order(order_id: str, user: dict = Depends(require_user)):
     if not doc:
         raise HTTPException(404)
     if user.get("role") == "buyer":
+        cid = company_scope(user)
         rfq = await db.rfqs.find_one({"rfq_id": doc.get("rfq_id")}, {"_id": 0, "buyer_company_id": 1})
-        if not rfq or rfq.get("buyer_company_id") != user.get("company_id"):
+        if not cid or not rfq or rfq.get("buyer_company_id") != cid:
             raise HTTPException(403)
-    elif user.get("role") == "exporter" and doc.get("exporter_company_id") != user.get("company_id"):
+    elif user.get("role") == "exporter" and doc.get("exporter_company_id") != company_scope(user):
         raise HTTPException(403)
     return doc
 
@@ -603,8 +844,20 @@ class MilestoneUpdate(BaseModel):
 @api.patch("/admin/orders/{order_id}")
 async def update_order(order_id: str, body: dict, user: dict = Depends(require_admin)):
     body.pop("_id", None); body.pop("order_id", None); body.pop("created_at", None)
+    order = await order_or_404(order_id)
+    new_status = body.get("status")
+    if new_status is not None:
+        if new_status not in ORDER_STATUS_FLOW:
+            raise HTTPException(422, f"Unknown order status '{new_status}'")
+        current = order.get("status") or "awaiting_deposit"
+        if new_status != current and new_status not in ORDER_STATUS_FLOW.get(current, []):
+            # production_hold and shipment_blocked have no route to shipping: an order on hold
+            # cannot be advanced past verification by hand.
+            raise HTTPException(422, f"Illegal transition {current} -> {new_status}")
     await db.orders.update_one({"order_id": order_id}, {"$set": body})
     await db.activity_logs.insert_one({"kind": "order_update", "order_id": order_id, "by": user["user_id"], "fields": list(body.keys()), "at": datetime.now(timezone.utc).isoformat()})
+    if new_status in ORDER_COMPLETION_STATES:
+        await write_production_run(await order_or_404(order_id), user["user_id"])
     return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
 
 @api.patch("/admin/orders/{order_id}/milestones")
@@ -615,37 +868,429 @@ async def replace_milestones(order_id: str, body: MilestoneUpdate, user: dict = 
     return await db.orders.find_one({"order_id": order_id}, {"_id": 0})
 
 
+# ---------- Production specification ----------
+# The specification is the contract production is judged against. It is frozen when the buyer
+# accepts a quotation, and never edited afterwards: a change is a new version that the buyer
+# has to approve, so an inspection result always refers to something both sides signed off.
+
+class SpecRow(BaseModel):
+    name: str
+    target: str = ""
+    tolerance: str = ""
+    critical: bool = False
+
+class SpecificationCreate(BaseModel):
+    rfq_id: str
+    rows: Optional[List[SpecRow]] = None      # defaults to the RFQ's category fields
+    sample_reference: Optional[str] = None    # file_id of the approved sample
+
+def spec_rows_from_rfq(rfq: dict) -> List[dict]:
+    """Seed rows from the RFQ's category-specific answers — the same vocabulary the buyer
+    filled in, so nothing is renamed between requirement and verification."""
+    fields = rfq.get("category_fields") or {}
+    return [{"name": k, "target": str(v), "tolerance": "", "critical": False}
+            for k, v in fields.items() if str(v or "").strip()]
+
+def next_spec_version(previous: Optional[dict]) -> str:
+    if not previous:
+        return "1.0"
+    major, _, minor = (previous.get("version") or "1.0").partition(".")
+    return f"{major}.{int(minor or 0) + 1}"
+
+async def latest_locked_spec(rfq_id: str) -> Optional[dict]:
+    return await db.specifications.find_one(
+        {"rfq_id": rfq_id, "status": "locked"}, {"_id": 0}, sort=[("created_at", -1)])
+
+async def spec_visible_to(user: dict, spec: dict) -> bool:
+    if user.get("role") == "admin":
+        return True
+    cid = company_scope(user)
+    if not cid:
+        return False
+    if user.get("role") == "buyer":
+        rfq = await db.rfqs.find_one({"rfq_id": spec["rfq_id"]}, {"_id": 0, "buyer_company_id": 1})
+        return bool(rfq and rfq.get("buyer_company_id") == cid)
+    if user.get("role") == "exporter":
+        return bool(await db.exporter_invitations.find_one(
+            {"rfq_id": spec["rfq_id"], "exporter_company_id": cid}))
+    return False
+
+@api.post("/admin/specifications")
+async def propose_specification(body: SpecificationCreate, user: dict = Depends(require_admin)):
+    """Draft the next version. It is not binding until the buyer approves it."""
+    rfq = await db.rfqs.find_one({"rfq_id": body.rfq_id}, {"_id": 0})
+    if not rfq:
+        raise HTTPException(404, "Not found")
+    pending = await db.specifications.find_one(
+        {"rfq_id": body.rfq_id, "status": "proposed"}, {"_id": 0})
+    if pending:
+        raise HTTPException(409, f"Specification {pending['version']} is already awaiting buyer approval")
+    previous = await latest_locked_spec(body.rfq_id)
+    rows = [r.model_dump() for r in body.rows] if body.rows else (
+        previous.get("rows") if previous else spec_rows_from_rfq(rfq))
+    if not rows:
+        raise HTTPException(422, "A specification needs at least one row")
+    doc = {
+        "specification_id": f"spec_{uuid.uuid4().hex[:10]}",
+        "rfq_id": body.rfq_id, "order_id": None,
+        "version": next_spec_version(previous),
+        "rows": rows,
+        "sample_reference": body.sample_reference or (previous or {}).get("sample_reference"),
+        "status": "proposed", "supersedes": (previous or {}).get("specification_id"),
+        "locked_at": None, "locked_by": None,
+        "created_by": user["user_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.specifications.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+class SpecificationUpdate(BaseModel):
+    rows: Optional[List[SpecRow]] = None
+    sample_reference: Optional[str] = None
+
+@api.patch("/admin/specifications/{specification_id}")
+async def update_specification(specification_id: str, body: SpecificationUpdate,
+                               user: dict = Depends(require_admin)):
+    """Editable only while proposed. A locked specification is never modified in place — that
+    is the whole point of locking it — so changing one means proposing the next version."""
+    spec = await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+    if not spec:
+        raise HTTPException(404, "Not found")
+    if spec["status"] != "proposed":
+        raise HTTPException(409, f"Specification {spec['version']} is {spec['status']} and cannot be edited; "
+                                 f"propose a new version instead")
+    patch: Dict[str, Any] = {}
+    if body.rows is not None:
+        if not body.rows:
+            raise HTTPException(422, "A specification needs at least one row")
+        patch["rows"] = [r.model_dump() for r in body.rows]
+    if body.sample_reference is not None:
+        patch["sample_reference"] = body.sample_reference
+    if patch:
+        await db.specifications.update_one({"specification_id": specification_id}, {"$set": patch})
+    return await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+
+@api.post("/specifications/{specification_id}/approve")
+async def approve_specification(specification_id: str, user: dict = Depends(require_user)):
+    """Buyer approval is what locks a specification. Admin may counter-sign for an offline buyer."""
+    spec = await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+    if not spec or not await spec_visible_to(user, spec) or user.get("role") == "exporter":
+        raise HTTPException(404, "Not found")
+    if spec["status"] != "proposed":
+        raise HTTPException(409, f"Specification is {spec['status']}, not awaiting approval")
+    now = datetime.now(timezone.utc).isoformat()
+    if spec.get("supersedes"):
+        await db.specifications.update_one({"specification_id": spec["supersedes"]},
+                                           {"$set": {"status": "superseded", "superseded_by": specification_id}})
+    await db.specifications.update_one({"specification_id": specification_id}, {"$set": {
+        "status": "locked", "locked_at": now,
+        "locked_by": company_scope(user) or user["user_id"],
+    }})
+    await db.activity_logs.insert_one({"kind": "specification_locked", "rfq_id": spec["rfq_id"],
+                                       "specification_id": specification_id, "version": spec["version"],
+                                       "by": user["user_id"], "at": now})
+    return await db.specifications.find_one({"specification_id": specification_id}, {"_id": 0})
+
+@api.get("/specifications")
+async def list_specifications(rfq_id: Optional[str] = None, order_id: Optional[str] = None,
+                              user: dict = Depends(require_user)):
+    if order_id and not rfq_id:
+        order = await db.orders.find_one({"order_id": order_id}, {"_id": 0, "rfq_id": 1})
+        if not order:
+            raise HTTPException(404, "Not found")
+        rfq_id = order["rfq_id"]
+    if not rfq_id:
+        raise HTTPException(422, "rfq_id or order_id is required")
+    docs = await db.specifications.find({"rfq_id": rfq_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    if not docs:
+        return []
+    if not await spec_visible_to(user, docs[0]):
+        raise HTTPException(404, "Not found")
+    if user.get("role") == "exporter":
+        # A proposal is an internal draft between admin and buyer. An exporter is only ever
+        # shown what was actually agreed.
+        docs = [d for d in docs if d["status"] != "proposed"]
+    return docs
+
+# ---------- Buyer acceptance ----------
+@api.post("/buyer-quotations/{bqid}/accept")
+async def accept_buyer_quotation(bqid: str, user: dict = Depends(require_user)):
+    """Acceptance is the moment the requirement stops moving: it locks the specification."""
+    bq = await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
+    if not bq:
+        raise HTTPException(404, "Not found")
+    visible = await scope_buyer_quotations(user, [bq])
+    if not visible:
+        raise HTTPException(404, "Not found")
+    if bq.get("status") == "accepted":
+        return public_quotation(bq)
+    await db.buyer_quotations.update_one({"buyer_quotation_id": bqid}, {"$set": {
+        "status": "accepted", "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_by": user["user_id"]}})
+    spec = await db.specifications.find_one({"rfq_id": bq["rfq_id"], "status": "proposed"}, {"_id": 0})
+    if spec:
+        await approve_specification(spec["specification_id"], user)
+    updated = await db.buyer_quotations.find_one({"buyer_quotation_id": bqid}, {"_id": 0})
+    return public_quotation(updated)
+
+# ---------- Inspections ----------
+INSPECTION_TYPES = ("first_article", "mid_run", "pre_shipment")
+
+class Measurement(BaseModel):
+    name: str
+    target: str = ""
+    result: str = ""
+    status: str = "pass"   # pass | fail
+
+class InspectionCreate(BaseModel):
+    order_id: str
+    type: str
+    inspector: str
+    measurements: List[Measurement]
+    notes: Optional[str] = None
+    evidence: Optional[List[str]] = []
+
+class CorrectiveAction(BaseModel):
+    text: str
+    owner: str
+
+async def order_or_404(order_id: str) -> dict:
+    order = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Not found")
+    return order
+
+async def set_order_state(order_id: str, status: str, by: str, **extra):
+    await db.orders.update_one({"order_id": order_id}, {"$set": {"status": status, **extra}})
+    await db.activity_logs.insert_one({"kind": "order_status", "order_id": order_id,
+                                       "to": status, "by": by,
+                                       "at": datetime.now(timezone.utc).isoformat()})
+
+@api.post("/admin/inspections")
+async def create_inspection(body: InspectionCreate, user: dict = Depends(require_admin)):
+    if body.type not in INSPECTION_TYPES:
+        raise HTTPException(422, f"Unknown inspection type '{body.type}'")
+    order = await order_or_404(body.order_id)
+    spec = await latest_locked_spec(order["rfq_id"])
+    if not spec:
+        raise HTTPException(409, "No locked specification — nothing to verify against")
+
+    previous = await db.inspections.find({"order_id": body.order_id, "type": body.type}, {"_id": 0}) \
+        .sort("round", -1).to_list(50)
+    round_no = (previous[0]["round"] + 1) if previous else 1
+    if previous and previous[0]["outcome"] == "fail" and not previous[0].get("corrective_action"):
+        raise HTTPException(409, "Record a corrective action on the failed inspection before re-inspecting")
+
+    critical_by_name = {r["name"]: bool(r.get("critical")) for r in spec["rows"]}
+    measurements = []
+    for m in body.measurements:
+        d = m.model_dump()
+        if d["status"] not in ("pass", "fail"):
+            raise HTTPException(422, "Measurement status must be pass or fail")
+        d["critical"] = critical_by_name.get(d["name"], False)
+        measurements.append(d)
+    critical_failures = [m for m in measurements if m["critical"] and m["status"] == "fail"]
+    outcome = "fail" if any(m["status"] == "fail" for m in measurements) else "pass"
+
+    doc = {
+        "inspection_id": f"insp_{uuid.uuid4().hex[:10]}",
+        "order_id": body.order_id, "rfq_id": order["rfq_id"],
+        "specification_id": spec["specification_id"], "spec_version": spec["version"],
+        "type": body.type, "round": round_no,
+        "inspector": body.inspector, "inspected_at": datetime.now(timezone.utc).isoformat(),
+        "measurements": measurements, "notes": body.notes, "evidence": body.evidence or [],
+        "corrective_action": None, "outcome": outcome,
+        "critical_failures": len(critical_failures),
+        "created_by": user["user_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.inspections.insert_one(doc)
+    doc.pop("_id", None)
+
+    # A failed critical measurement stops the line. Anything else is recorded but not blocking.
+    if critical_failures:
+        if body.type == "pre_shipment":
+            await set_order_state(body.order_id, "shipment_blocked", user["user_id"],
+                                  hold={"inspection_id": doc["inspection_id"], "since": doc["inspected_at"]})
+        else:
+            await set_order_state(body.order_id, "production_hold", user["user_id"],
+                                  hold={"inspection_id": doc["inspection_id"], "since": doc["inspected_at"]})
+    elif body.type == "pre_shipment":
+        await set_order_state(body.order_id, "cleared_to_ship", user["user_id"], hold=None)
+    elif order.get("hold") and round_no > 1:
+        # A passing re-inspection clears the hold and records that the non-conformance was
+        # corrected during production rather than shipped.
+        await set_order_state(body.order_id, "in_production", user["user_id"], hold=None)
+        await db.inspections.update_one({"inspection_id": doc["inspection_id"]},
+                                        {"$set": {"cleared_hold": True}})
+        doc["cleared_hold"] = True
+    return doc
+
+@api.post("/admin/inspections/{inspection_id}/corrective-action")
+async def record_corrective_action(inspection_id: str, body: CorrectiveAction,
+                                   user: dict = Depends(require_admin)):
+    insp = await db.inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(404, "Not found")
+    if insp["outcome"] != "fail":
+        raise HTTPException(409, "Corrective actions are recorded against a failed inspection")
+    action = {"text": body.text, "owner": body.owner,
+              "recorded_at": datetime.now(timezone.utc).isoformat()}
+    await db.inspections.update_one({"inspection_id": inspection_id},
+                                    {"$set": {"corrective_action": action}})
+    return await db.inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+
+@api.get("/inspections")
+async def list_inspections(order_id: str, user: dict = Depends(require_user)):
+    order = await order_or_404(order_id)
+    if user.get("role") == "buyer":
+        cid = company_scope(user)
+        rfq = await db.rfqs.find_one({"rfq_id": order["rfq_id"]}, {"_id": 0, "buyer_company_id": 1})
+        if not cid or not rfq or rfq.get("buyer_company_id") != cid:
+            raise HTTPException(404, "Not found")
+    elif user.get("role") == "exporter" and order.get("exporter_company_id") != company_scope(user):
+        raise HTTPException(404, "Not found")
+    return await db.inspections.find({"order_id": order_id}, {"_id": 0}).sort("inspected_at", 1).to_list(200)
+
+# ---------- Factory performance ----------
+# Every number here is derived from production runs and the inspections behind them. Nothing on
+# an exporter profile is typed in by hand.
+
+def _measurement_rows(inspections: List[dict], first_pass_only: bool = True):
+    for insp in inspections:
+        if first_pass_only and insp.get("round", 1) != 1:
+            continue
+        for m in insp.get("measurements", []):
+            yield m
+
+def conformance_from_inspections(inspections: List[dict]) -> Optional[float]:
+    rows = list(_measurement_rows(inspections))
+    if not rows:
+        return None
+    passed = sum(1 for m in rows if m.get("status") == "pass")
+    return round(passed / len(rows) * 100, 1)
+
+async def write_production_run(order: dict, by: str) -> Optional[dict]:
+    """Called once when an order completes. Idempotent."""
+    if await db.production_runs.find_one({"order_id": order["order_id"]}):
+        return None
+    inspections = await db.inspections.find({"order_id": order["order_id"]}, {"_id": 0}).to_list(200)
+    completed_at = datetime.now(timezone.utc)
+    created_at = order.get("created_at")
+    try:
+        started = created_at if isinstance(created_at, datetime) else datetime.fromisoformat(created_at)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        lead_time_days = (completed_at - started).days
+    except (TypeError, ValueError):
+        lead_time_days = None
+    due_dates = [m.get("due_date") for m in (order.get("milestones") or []) if m.get("due_date")]
+    on_time = None
+    if due_dates:
+        try:
+            on_time = completed_at.date().isoformat() <= max(due_dates)
+        except (TypeError, ValueError):
+            on_time = None
+    run = {
+        "run_id": f"run_{uuid.uuid4().hex[:10]}",
+        "order_id": order["order_id"],
+        "exporter_company_id": order.get("exporter_company_id"),
+        "rfq_id": order.get("rfq_id"),
+        "conformance_pct": conformance_from_inspections(inspections),
+        "on_time": on_time,
+        "corrective_actions": sum(1 for i in inspections if i.get("corrective_action")),
+        "lead_time_days": lead_time_days,
+        "inspections": len(inspections),
+        "completed_at": completed_at.isoformat(),
+        "recorded_by": by,
+    }
+    await db.production_runs.insert_one(run)
+    run.pop("_id", None)
+    return run
+
+async def performance_profile(exporter_company_id: str) -> dict:
+    runs = await db.production_runs.find({"exporter_company_id": exporter_company_id}, {"_id": 0}).to_list(500)
+    scored = [r for r in runs if r.get("conformance_pct") is not None]
+    timed = [r for r in runs if r.get("on_time") is not None]
+    lead = [r["lead_time_days"] for r in runs if r.get("lead_time_days") is not None]
+
+    order_ids = [r["order_id"] for r in runs]
+    inspections = await db.inspections.find({"order_id": {"$in": order_ids}}, {"_id": 0}).to_list(1000) if order_ids else []
+    by_attribute: Dict[str, Dict[str, int]] = {}
+    for m in _measurement_rows(inspections):
+        bucket = by_attribute.setdefault(m.get("name", "unknown"), {"passed": 0, "total": 0})
+        bucket["total"] += 1
+        bucket["passed"] += 1 if m.get("status") == "pass" else 0
+
+    return {
+        "exporter_company_id": exporter_company_id,
+        "runs": len(runs),
+        "conformance_pct": round(sum(r["conformance_pct"] for r in scored) / len(scored), 1) if scored else 0.0,
+        "on_time_pct": round(sum(1 for r in timed if r["on_time"]) / len(timed) * 100, 1) if timed else 0.0,
+        "corrective_actions": sum(r.get("corrective_actions", 0) for r in runs),
+        "avg_lead_time_days": round(sum(lead) / len(lead)) if lead else None,
+        "attributes": [
+            {"name": name, "conformance_pct": round(v["passed"] / v["total"] * 100, 1), "measured": v["total"]}
+            for name, v in sorted(by_attribute.items())
+        ],
+        "basis": "Performance metrics are generated from verified production runs.",
+    }
+
+@api.get("/admin/exporter-performance")
+async def list_exporter_performance(user: dict = Depends(require_admin)):
+    ids = await db.production_runs.distinct("exporter_company_id")
+    profiles = [await performance_profile(cid) for cid in ids if cid]
+    return sorted(profiles, key=lambda p: (-p["conformance_pct"], -p["runs"]))
+
+@api.get("/admin/exporter-performance/{exporter_company_id}")
+async def get_exporter_performance(exporter_company_id: str, user: dict = Depends(require_admin)):
+    return await performance_profile(exporter_company_id)
+
 # ---------- Files ----------
+async def can_read_file(user: dict, rec: dict) -> bool:
+    """Fail closed: a file with no recorded owner is readable only by its uploader and admin."""
+    if user.get("role") == "admin":
+        return True
+    if rec.get("user_id") == user.get("user_id"):
+        return True
+    cid = company_scope(user)
+    if not cid:
+        return False
+    if rec.get("owner_company_id") and rec["owner_company_id"] == cid:
+        return True
+    rfq_id = rec.get("rfq_id")
+    if not rfq_id:
+        return False
+    if user.get("role") == "buyer":
+        rfq = await db.rfqs.find_one({"rfq_id": rfq_id}, {"_id": 0, "buyer_company_id": 1})
+        return bool(rfq and rfq.get("buyer_company_id") == cid)
+    if user.get("role") == "exporter":
+        return bool(await db.exporter_invitations.find_one({"rfq_id": rfq_id, "exporter_company_id": cid}))
+    return False
+
 @api.post("/files/upload")
-async def upload_file(file: UploadFile = File(...), user: dict = Depends(require_user)):
+async def upload_file(file: UploadFile = File(...), rfq_id: Optional[str] = Form(None),
+                      user: dict = Depends(require_user)):
     ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin"
     path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4()}.{ext}"
     data = await file.read()
-    result = put_object(path, data, file.content_type or "application/octet-stream")
+    result = await run_in_threadpool(put_object, path, data, file.content_type or "application/octet-stream")
     file_id = f"file_{uuid.uuid4().hex[:10]}"
     await db.files.insert_one({
         "file_id": file_id, "storage_path": result["path"],
         "original_filename": file.filename, "content_type": file.content_type,
         "size": result.get("size", len(data)), "user_id": user["user_id"],
+        "owner_company_id": company_scope(user), "rfq_id": rfq_id,
         "is_deleted": False, "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"file_id": file_id, "path": result["path"], "filename": file.filename}
 
 @api.get("/files/{file_id}")
-async def download_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
-    # Fallback token via query for <img src>
-    if auth and "session_token" not in request.cookies:
-        sess = await db.user_sessions.find_one({"session_token": auth})
-        if not sess:
-            raise HTTPException(401)
-    else:
-        u = await get_current_user(request)
-        if not u:
-            raise HTTPException(401)
+async def download_file(file_id: str, user: dict = Depends(require_user)):
     rec = await db.files.find_one({"file_id": file_id, "is_deleted": False}, {"_id": 0})
-    if not rec:
+    # 404 on both "missing" and "not yours" — a 403 would confirm the file id exists.
+    if not rec or not await can_read_file(user, rec):
         raise HTTPException(404, "Not found")
-    data, ct = get_object(rec["storage_path"])
+    data, ct = await run_in_threadpool(get_object, rec["storage_path"])
     return FastResponse(content=data, media_type=rec.get("content_type") or ct)
 
 # ---------- Admin overview ----------
@@ -665,10 +1310,9 @@ async def demo_sample_order():
     return await db.demo_sample.find_one({"kind": "yc_demo_order"}, {"_id": 0}) or {}
 
 # ---------- Startup: seed demo + storage ----------
-@app.on_event("startup")
 async def startup():
     try:
-        init_storage()
+        await run_in_threadpool(init_storage)
     except Exception:
         pass
     # Ensure owner user exists as admin
@@ -731,6 +1375,6 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"], allow_headers=["*"],
 )

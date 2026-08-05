@@ -5,6 +5,7 @@ import { useAuth, loginRedirect } from "../lib/auth";
 const NAV = [
   { to: "/#how-it-works", label: "How It Works" },
   { to: "/#categories", label: "Categories" },
+  { to: "/#verification", label: "Verification" },
   { to: "/#assurance", label: "Assurance" },
   { to: "/for-exporters", label: "For Exporters" },
 ];
@@ -58,6 +59,7 @@ export function MarketingLayout({ children }) {
             <ul className="space-y-2 text-[13px]">
               <li><a href="/#how-it-works">How it works</a></li>
               <li><a href="/#categories">Categories</a></li>
+              <li><a href="/#verification">Verification</a></li>
               <li><a href="/#assurance">Assurance</a></li>
               <li><Link to="/sample-order">Sample order</Link></li>
             </ul>

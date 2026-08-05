@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 const CATEGORIES = ["Jewellery", "Textiles", "Handicrafts", "Specialty foods", "Other"];
 const KINDS = ["Catalogue product", "Private label", "Custom"];
 const CONCERNS = ["Supplier reliability", "Product quality", "Pricing", "Delivery timeline", "Payment protection", "Compliance", "Other"];
+const PAYMENT_STRUCTURES = ["100% upfront", "50/50", "30/70", "Credit / open account", "Not sure yet"];
 
 const JEWELLERY_FIELDS = [
   { k: "product_type", label: "Product type (ring / necklace / etc.)" },
@@ -76,7 +77,7 @@ export default function SubmitRFQ() {
     references: [],
     sample_required: false, desired_sample_date: "", desired_production_date: "",
     destination_country: "", destination_city: "",
-    current_sourcing: "", main_concern: "",
+    payment_structure: "", current_sourcing: "", main_concern: "",
     category_fields: {},
     contact_name: "", contact_email: "", contact_company: "", contact_country: "",
   });
@@ -224,6 +225,7 @@ export default function SubmitRFQ() {
                 <Row label="Destination country"><input data-testid="f-country" className="n-input" value={f.destination_country} onChange={e=>set("destination_country", e.target.value)}/></Row>
                 <Row label="Destination city"><input data-testid="f-city" className="n-input" value={f.destination_city} onChange={e=>set("destination_city", e.target.value)}/></Row>
               </div>
+              <Row label="Preferred payment structure (optional)"><select data-testid="f-payment" className="n-input" value={f.payment_structure} onChange={e=>set("payment_structure", e.target.value)}><option value="">— Skip —</option>{PAYMENT_STRUCTURES.map(c=><option key={c}>{c}</option>)}</select></Row>
               <Row label="Current sourcing method (optional)"><input data-testid="f-current" className="n-input" placeholder="How are you currently sourcing this? (optional)" value={f.current_sourcing} onChange={e=>set("current_sourcing", e.target.value)}/></Row>
               <Row label="Main concern (optional)"><select data-testid="f-concern" className="n-input" value={f.main_concern} onChange={e=>set("main_concern", e.target.value)}><option value="">— Skip —</option>{CONCERNS.map(c=><option key={c}>{c}</option>)}</select></Row>
             </>}
