@@ -386,6 +386,8 @@ def search_open_roles(args):
     exclude = _as_list(args.get("exclude_keywords"))
     locations = _as_list(args.get("locations"))
     remote_ok = bool(args.get("include_remote", True))
+    # A city search also returns roles in that region's other cities, ranked after the city asked for.
+    other_cities = bool(args.get("include_other_cities", True))
     eligible_only = bool(args.get("eligible_only", False))
     limit = int(args.get("limit") or 50)
     wanted = {c.lower() for c in _as_list(args.get("companies"))}
@@ -415,7 +417,11 @@ def search_open_roles(args):
     board_names = {c["name"] for c in boards}
 
     if locations:
-        search_locations = locations
+        search_locations = list(locations)
+        if other_cities:
+            implied = sorted(firm_regions - explicit_regions)
+            search_locations += [l for r in implied for l in regions[r]["search_locations"]
+                                 if l.lower() not in {x.lower() for x in search_locations}]
     else:
         search_locations = [l for r in sorted(explicit_regions) for l in regions[r]["search_locations"]]
 
@@ -447,8 +453,16 @@ def search_open_roles(args):
             for j in jobs:
                 j["regions"] = regions_for_location(j["location"], patterns)
                 j["work_eligible"] = _eligibility_for(j["regions"], eligibility)
-                if not job_matches(j, keywords, exclude, locations, remote_ok, explicit_regions, firm_regions):
+                match_regions = firm_regions if other_cities else explicit_regions
+                if not job_matches(j, keywords, exclude, locations, remote_ok, match_regions, firm_regions):
                     continue
+                if locations:
+                    if any(l.lower() in j["location"].lower() for l in locations):
+                        j["location_match"] = "requested_city"
+                    elif set(j["regions"]) & firm_regions:
+                        j["location_match"] = "elsewhere_in_region"
+                    else:
+                        j["location_match"] = "remote"
                 if eligible_only and j["work_eligible"] is False:
                     continue
                 roles.append(j)
@@ -457,6 +471,8 @@ def search_open_roles(args):
                 no_matches.append(name)
 
     roles.sort(key=lambda j: j.get("updated") or "", reverse=True)
+    rank = {"requested_city": 0, "elsewhere_in_region": 1, "remote": 2}
+    roles.sort(key=lambda j: rank.get(j.get("location_match"), 0))
     return {
         "companies_searched": len(boards),
         "total_matches": len(roles),
@@ -777,12 +793,14 @@ TOOLS = {
     "search_open_roles": (
         search_open_roles,
         "Search live open roles on approved firms' public Greenhouse/Lever/Ashby boards, filtered by title "
-        "keywords, lanes, regions and locations. Firms without a searchable board come back under "
+        "keywords, lanes, regions and locations. A city in locations also returns roles in the rest of "
+        "that region (e.g. Toronto -> Vancouver, Montreal, Calgary), tagged location_match and ranked "
+        "after the city; set include_other_cities false to stay in the city. Firms without a searchable board come back under "
         "manual_check with direct LinkedIn Jobs and careers-site search links; show every one to the user.",
         _schema({
             "keywords": STR_LIST, "exclude_keywords": STR_LIST, "locations": STR_LIST,
             "regions": STR_LIST, "lanes": STR_LIST, "companies": STR_LIST,
-            "include_remote": {"type": "boolean"}, "eligible_only": {"type": "boolean"},
+            "include_remote": {"type": "boolean"}, "include_other_cities": {"type": "boolean"}, "eligible_only": {"type": "boolean"},
             "limit": {"type": "integer"},
         }),
     ),

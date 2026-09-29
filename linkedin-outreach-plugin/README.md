@@ -25,7 +25,7 @@ messages.
 |---|---|
 | `get_candidate_profile` / `save_candidate_profile` | Read or save your profile at `~/.linkedin-outreach/profile.md` |
 | `list_target_companies` | List the target firms by lane and region, with each region's `work_eligible` flag from your profile |
-| `search_open_roles` | Search live roles by title keywords, lanes, regions, locations and remote. Firms without a public board come back as **manual check** entries with LinkedIn Jobs and careers-site search links, so no firm gets dropped |
+| `search_open_roles` | Search live roles by title keywords, lanes, regions, locations and remote. Searching a city also returns roles elsewhere in its region, ranked after the city itself. For example, Toronto also covers Vancouver, Montreal, Calgary, Ottawa and Waterloo. Pass `include_other_cities: false` to stay in the city. Firms without a public board come back as **manual check** entries with LinkedIn Jobs and careers-site search links, so no firm gets dropped |
 | `discover_firms` / `approve_firms` | Propose new firms for a lane and region, detect their job board, and add them as `pending` until you approve them |
 | `find_recruiter_links` | Build LinkedIn people-search links and Google X-ray links for recruiters, talent acquisition and hiring managers |
 | `check_message_limits` | Check a draft against the connection-note limit (300 characters, or 200 on a free account) and the InMail limit (1,900 characters, with a target of about 700). It also flags any mention of visas in a connection note |
