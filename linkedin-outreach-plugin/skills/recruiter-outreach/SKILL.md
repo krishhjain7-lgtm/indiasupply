@@ -29,7 +29,12 @@ message, and never try to log in to, scrape or automate LinkedIn.
    include regions marked `no` if the user wants roles that sponsor visas. If the flags are blank,
    ask the user to fill them in.
 3. If the Indeed connector is available, you can also use it for companies not on the list.
-4. Show a short table of `roles`: company, title, location, posted date, eligible, link.
+4. Show a short table of `roles`: company, title, location, posted date, eligible, link. When the
+   user names a city, the results also include the rest of that region by default. For example, a
+   Toronto search also covers Vancouver, Montreal, Calgary, Ottawa, Waterloo and other Canadian
+   cities. Group the roles by `location_match`: the requested city first, then **elsewhere in the
+   region**, then remote. Pass `include_other_cities: false` only if the user wants to stay in one
+   city.
 5. Then list **every** `manual_check` entry. These are firms without a searchable public board, or
    whose board failed to load. Give each one's reason and its LinkedIn Jobs and careers-site search
    links, and never leave one out. Also mention `firms_without_matches` and

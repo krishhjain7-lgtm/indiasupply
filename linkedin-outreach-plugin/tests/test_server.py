@@ -21,6 +21,9 @@ GREENHOUSE = {"jobs": [
     {"title": "Consultant", "location": {"name": "Remote - US"}, "absolute_url": "https://gh/4"},
     {"title": "Consultant", "location": {"name": "Remote"}, "absolute_url": "https://gh/5"},
     {"title": "Account Executive", "location": {"name": "Toronto"}, "absolute_url": "https://gh/6"},
+    {"title": "Consultant", "location": {"name": "Vancouver, BC"}, "absolute_url": "https://gh/7",
+     "updated_at": "2026-09-28T10:00:00Z"},
+    {"title": "Consultant", "location": {"name": "Halifax, Nova Scotia"}, "absolute_url": "https://gh/8"},
 ]}
 LEVER = [{"text": "Senior Consultant", "categories": {"location": "Dubai, UAE", "team": "Strategy"},
           "hostedUrl": "https://lever/1", "createdAt": 1790000000000, "workplaceType": "onsite"}]
@@ -42,7 +45,7 @@ def fake_get(url, timeout=None):
 
 
 REGIONS = {
-    "canada": {"label": "Canada", "search_locations": ["Canada"], "match": ["Canada", "Toronto"]},
+    "canada": {"label": "Canada", "search_locations": ["Canada"], "match": ["Canada", "Toronto", "Vancouver", "Halifax"]},
     "gcc": {"label": "GCC", "search_locations": ["Dubai", "Doha"], "match": ["Dubai", "UAE", "Doha"]},
     "usa": {"label": "US", "search_locations": ["United States"], "match": ["United States", "US"]},
     "uk_europe": {"label": "UK", "search_locations": ["United Kingdom"], "match": ["London", "UK"]},
@@ -113,9 +116,12 @@ class SearchTests(Base):
         srv.save_candidate_profile({"content": PROFILE})
         res = srv.search_open_roles({"keywords": ["consultant"], "exclude_keywords": ["intern"],
                                      "locations": ["Toronto", "Dubai"], "lanes": ["consulting"]})
-        # Remote-Canada and unscoped remote roles are kept; Remote-US is not; London firm not searched.
-        self.assertEqual([r["url"] for r in res["roles"]],
-                         ["https://lever/1", "https://gh/1", "https://gh/3", "https://gh/5"])
+        # Requested cities first, then other Canadian cities, then unscoped remote; Remote-US is dropped
+        # and the London-only firm is not searched.
+        self.assertEqual([(r["url"], r["location_match"]) for r in res["roles"]], [
+            ("https://lever/1", "requested_city"), ("https://gh/1", "requested_city"),
+            ("https://gh/7", "elsewhere_in_region"), ("https://gh/3", "elsewhere_in_region"),
+            ("https://gh/8", "elsewhere_in_region"), ("https://gh/5", "remote")])
         by_url = {r["url"]: r for r in res["roles"]}
         self.assertEqual(by_url["https://gh/1"]["work_eligible"], True)
         self.assertEqual(by_url["https://lever/1"]["work_eligible"], False)
@@ -125,12 +131,20 @@ class SearchTests(Base):
         self.assertEqual(set(manual), {"Big Consult (BC)", "Broken Board Co"})
         bc = manual["Big Consult (BC)"]
         self.assertEqual(bc["status"], "manual check")
-        self.assertEqual([l["location"] for l in bc["search_links"]], ["Toronto", "Dubai"])
+        self.assertEqual([l["location"] for l in bc["search_links"]], ["Toronto", "Dubai", "Canada", "Doha"])
         self.assertIn("keywords=Big+Consult+consultant", bc["search_links"][0]["linkedin_jobs"])
         self.assertIn("site%3Acareers.bigconsult.com", bc["search_links"][0]["careers_site_search"])
         self.assertIn("board fetch failed: HTTP 404", manual["Broken Board Co"]["reason"])
         self.assertEqual(res["pending_approval_not_searched"], ["Pending Co"])
         self.assertIn("Broken Board Co", res["errors"])
+
+    def test_city_only_search(self):
+        res = srv.search_open_roles({"keywords": ["consultant"], "exclude_keywords": ["intern"],
+                                     "locations": ["Toronto"], "include_other_cities": False,
+                                     "include_remote": False})
+        self.assertEqual([r["url"] for r in res["roles"]], ["https://gh/1"])
+        bc = next(m for m in res["manual_check"] if m["company"] == "Big Consult (BC)")
+        self.assertEqual([l["location"] for l in bc["search_links"]], ["Toronto"])
 
     def test_no_firm_silently_dropped(self):
         res = srv.search_open_roles({"keywords": ["nonexistent title"]})
@@ -321,6 +335,8 @@ class BundledDataTests(unittest.TestCase):
         self.assertEqual(srv.regions_for_location("Brussels, Belgium", pats), ["uk_europe"])
         self.assertEqual(srv.regions_for_location("Remote - US", pats), ["usa"])
         self.assertEqual(srv.regions_for_location("Toronto, ON", pats), ["canada"])
+        for city in ["Calgary, AB", "Waterloo, Ontario", "Halifax", "Winnipeg, MB", "Montréal, QC", "Remote Canada"]:
+            self.assertEqual(srv.regions_for_location(city, pats), ["canada"], city)
         self.assertEqual(srv.regions_for_location("Riyadh, Saudi Arabia", pats), ["gcc"])
 
 
