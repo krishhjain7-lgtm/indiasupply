@@ -1,0 +1,29 @@
+{
+  "_comment": "Starter list of public job boards. Copy to ~/.linkedin-outreach/companies.json to customise. 'token' is the slug in the company's careers URL: boards.greenhouse.io/<token>, jobs.lever.co/<token>, jobs.ashbyhq.com/<token>. Boards that move ATS show up under 'errors' in search results.",
+  "companies": [
+    {"name": "Stripe", "ats": "greenhouse", "token": "stripe", "segment": "scaleup", "regions": ["US", "UK", "Ireland", "Singapore", "India", "Remote"]},
+    {"name": "Airbnb", "ats": "greenhouse", "token": "airbnb", "segment": "big_tech", "regions": ["US", "India", "Ireland", "Remote"]},
+    {"name": "Databricks", "ats": "greenhouse", "token": "databricks", "segment": "scaleup", "regions": ["US", "UK", "Netherlands", "India", "Singapore"]},
+    {"name": "Figma", "ats": "greenhouse", "token": "figma", "segment": "scaleup", "regions": ["US", "UK", "Germany", "Remote"]},
+    {"name": "Anthropic", "ats": "greenhouse", "token": "anthropic", "segment": "scaleup", "regions": ["US", "UK", "Ireland", "Japan", "India"]},
+    {"name": "Coinbase", "ats": "greenhouse", "token": "coinbase", "segment": "scaleup", "regions": ["US", "UK", "India", "Remote"]},
+    {"name": "Cloudflare", "ats": "greenhouse", "token": "cloudflare", "segment": "big_tech", "regions": ["US", "UK", "Portugal", "Singapore", "India"]},
+    {"name": "GitLab", "ats": "greenhouse", "token": "gitlab", "segment": "scaleup", "regions": ["Remote"]},
+    {"name": "Dropbox", "ats": "greenhouse", "token": "dropbox", "segment": "big_tech", "regions": ["US", "Poland", "Remote"]},
+    {"name": "Pinterest", "ats": "greenhouse", "token": "pinterest", "segment": "big_tech", "regions": ["US", "Ireland", "Canada"]},
+    {"name": "Reddit", "ats": "greenhouse", "token": "reddit", "segment": "big_tech", "regions": ["US", "Canada", "UK", "Remote"]},
+    {"name": "Discord", "ats": "greenhouse", "token": "discord", "segment": "scaleup", "regions": ["US", "Remote"]},
+    {"name": "Robinhood", "ats": "greenhouse", "token": "robinhood", "segment": "finance", "regions": ["US", "UK", "Canada"]},
+    {"name": "PhonePe", "ats": "greenhouse", "token": "phonepe", "segment": "india", "regions": ["India"]},
+    {"name": "Palantir", "ats": "lever", "token": "palantir", "segment": "big_tech", "regions": ["US", "UK", "Germany", "Australia"]},
+    {"name": "Spotify", "ats": "lever", "token": "spotify", "segment": "big_tech", "regions": ["Sweden", "UK", "US", "Germany"]},
+    {"name": "Razorpay", "ats": "lever", "token": "razorpay", "segment": "india", "regions": ["India", "Malaysia"]},
+    {"name": "CRED", "ats": "lever", "token": "cred", "segment": "india", "regions": ["India"]},
+    {"name": "OpenAI", "ats": "ashby", "token": "openai", "segment": "scaleup", "regions": ["US", "UK", "Ireland", "Singapore", "Japan", "India"]},
+    {"name": "Notion", "ats": "ashby", "token": "notion", "segment": "scaleup", "regions": ["US", "Ireland", "Japan", "India"]},
+    {"name": "Ramp", "ats": "ashby", "token": "ramp", "segment": "startup", "regions": ["US"]},
+    {"name": "Linear", "ats": "ashby", "token": "linear", "segment": "startup", "regions": ["Remote"]},
+    {"name": "Perplexity", "ats": "ashby", "token": "perplexity", "segment": "startup", "regions": ["US", "UK", "Germany"]},
+    {"name": "Deel", "ats": "ashby", "token": "deel", "segment": "startup", "regions": ["Remote"]}
+  ]
+}

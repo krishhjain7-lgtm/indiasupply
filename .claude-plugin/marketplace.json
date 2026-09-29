@@ -1,0 +1,11 @@
+{
+  "name": "krishh-plugins",
+  "owner": { "name": "krishhjain7-lgtm" },
+  "plugins": [
+    {
+      "name": "recruiter-outreach",
+      "source": "./linkedin-outreach-plugin",
+      "description": "Personalised LinkedIn recruiter outreach for open roles worldwide."
+    }
+  ]
+}

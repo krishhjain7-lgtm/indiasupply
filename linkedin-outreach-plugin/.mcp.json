@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "recruiter-outreach": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/outreach_server.py"]
+    }
+  }
+}
