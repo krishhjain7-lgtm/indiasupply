@@ -1,0 +1,7 @@
+{
+  "name": "recruiter-outreach",
+  "version": "0.1.0",
+  "description": "Find open roles worldwide, locate recruiters on LinkedIn, and draft personalised outreach using your Claude instructions. Drafts only; you send.",
+  "author": { "name": "krishhjain7-lgtm" },
+  "keywords": ["linkedin", "recruiting", "job-search", "outreach"]
+}

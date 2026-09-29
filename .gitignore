@@ -86,3 +86,11 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# recruiter-outreach personal data: lives in ~/.linkedin-outreach, never in the repo
+.linkedin-outreach/
+outreach_log.csv
+.tracker_seeded
+linkedin-outreach-plugin/**/profile.md
+linkedin-outreach-plugin/**/companies.json.tmp
+linkedin-outreach-plugin/server/tracker_seed.json
