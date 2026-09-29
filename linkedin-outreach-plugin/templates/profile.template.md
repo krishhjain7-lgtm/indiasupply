@@ -31,6 +31,16 @@
 - Citizenship / work authorisation (e.g. "Indian citizen, needs visa sponsorship for UK/US/EU"):
 - Notice period / earliest start date:
 
+## Work eligibility by region
+<!-- Answer yes (can work there without sponsorship) or no (needs sponsorship) after each colon.
+     Claude only raises sponsorship in InMails and follow-ups for regions marked no. -->
+- canada:
+- gcc:
+- usa:
+- uk_europe:
+- apac:
+- india:
+
 ## Tone and style
 - Voice (e.g. warm and direct, no buzzwords):
 - Things never to say:
